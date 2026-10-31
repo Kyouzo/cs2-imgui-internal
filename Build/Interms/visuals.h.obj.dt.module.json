@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\visuals.obj",
+            "outputs": [
+                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\visuals.h.obj.dt.module.json",
+                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\visuals.h.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}

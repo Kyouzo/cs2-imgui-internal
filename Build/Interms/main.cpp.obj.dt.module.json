@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\main.obj",
+            "outputs": [
+                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\main.cpp.obj.dt.module.json",
+                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\main.cpp.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}

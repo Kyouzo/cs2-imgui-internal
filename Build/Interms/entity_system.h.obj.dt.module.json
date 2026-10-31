@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\entity_system.obj",
+            "outputs": [
+                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\entity_system.h.obj.dt.module.json",
+                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\entity_system.h.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}
