@@ -9,6 +9,7 @@ namespace offsets
 	// https://github.com/a2x/cs2-dumper/tree/main/output
 
 	constexpr std::ptrdiff_t dwEntityList = 0x271EB08;
+	constexpr std::ptrdiff_t dwLocalPlayerController = 0x25413F8;
 	constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x25698C8;
 	constexpr std::ptrdiff_t dwViewMatrix = 0x256F1D0;
 

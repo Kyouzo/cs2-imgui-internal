@@ -5,7 +5,12 @@
 #include "globals/globals.h"
 #include "visuals/visuals.h"
 #include "debug/debug.h"
+#include "kiero/minhook/include/MinHook.h"
 #include <algorithm>
+#include <cctype>
+#include <sstream>
+#include <string>
+#include <vector>
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 Present oPresent;
@@ -154,6 +159,77 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 inline void* pUpdateAccuracyPenality = nullptr;
 inline void* pGetSpread = nullptr;
 inline void* pGetInaccuracy = nullptr;
+inline void* pFrameStageNotify = nullptr;
+inline void* pCreateMove = nullptr;
+inline void* pCsgoInput = nullptr;
+
+using CreateMoveFn = void(__fastcall*)(void*, int, char);
+using FrameStageNotifyFn = void(__fastcall*)(void*, int);
+inline CreateMoveFn oCreateMove = nullptr;
+inline FrameStageNotifyFn oFrameStageNotify = nullptr;
+
+namespace
+{
+	std::vector<int> ParsePattern(const char* pattern)
+	{
+		std::vector<int> bytes;
+		std::istringstream stream(pattern);
+		std::string token;
+		while (stream >> token)
+			bytes.push_back(token == "?" || token == "??" ? -1 : std::stoi(token, nullptr, 16));
+		return bytes;
+	}
+
+	uintptr_t FindPattern(uintptr_t module, const char* pattern)
+	{
+		if (!module)
+			return 0;
+
+		const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(module);
+		if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+			return 0;
+		const auto nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(module + dos->e_lfanew);
+		if (nt->Signature != IMAGE_NT_SIGNATURE)
+			return 0;
+
+		const auto bytes = ParsePattern(pattern);
+		const auto* section = IMAGE_FIRST_SECTION(nt);
+		for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i)
+		{
+			if ((section[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
+				continue;
+
+			const auto* begin = reinterpret_cast<const std::uint8_t*>(module + section[i].VirtualAddress);
+			const auto size = static_cast<size_t>(section[i].Misc.VirtualSize);
+			if (bytes.empty() || size < bytes.size())
+				continue;
+
+			for (size_t offset = 0; offset <= size - bytes.size(); ++offset)
+			{
+				bool matched = true;
+				for (size_t j = 0; j < bytes.size(); ++j)
+				{
+					if (bytes[j] >= 0 && begin[offset + j] != static_cast<std::uint8_t>(bytes[j]))
+					{
+						matched = false;
+						break;
+					}
+				}
+				if (matched)
+					return reinterpret_cast<uintptr_t>(begin + offset);
+			}
+		}
+		return 0;
+	}
+
+	uintptr_t ResolveRelativeAddress(uintptr_t instruction, size_t displacementOffset, size_t instructionSize)
+	{
+		if (!instruction)
+			return 0;
+		const auto displacement = *reinterpret_cast<const std::int32_t*>(instruction + displacementOffset);
+		return instruction + instructionSize + displacement;
+	}
+}
 
 void UpdateAccuracyPenality(void* weapon)
 {
@@ -180,6 +256,63 @@ float GetInaccuracy(void* weapon)
 	return fn && weapon ? fn(weapon, &x, &y) : 0.0f;
 }
 
+void __fastcall hkCreateMove(void* input, int slot, char active)
+{
+	if (oCreateMove)
+		oCreateMove(input, slot, active);
+
+	// Feature processing belongs here once the command and weapon SDK wrappers
+	// are connected. Keeping the original call first preserves game processing.
+}
+
+void __fastcall hkFrameStageNotify(void* thisptr, int stage)
+{
+	if (oFrameStageNotify)
+		oFrameStageNotify(thisptr, stage);
+}
+
+bool InstallGameplayHooks()
+{
+	if (!pCreateMove || !pFrameStageNotify)
+	{
+		debug::Log("[hooks] gameplay targets unresolved; CreateMove=%p FrameStageNotify=%p",
+			pCreateMove, pFrameStageNotify);
+		return false;
+	}
+
+	const auto initStatus = MH_Initialize();
+	if (initStatus != MH_OK && initStatus != MH_ERROR_ALREADY_INITIALIZED)
+	{
+		debug::Log("[hooks] MinHook initialization failed: %d", static_cast<int>(initStatus));
+		return false;
+	}
+
+	const auto createStatus = MH_CreateHook(pCreateMove, reinterpret_cast<void*>(&hkCreateMove),
+		reinterpret_cast<void**>(&oCreateMove));
+	const auto frameStatus = MH_CreateHook(pFrameStageNotify, reinterpret_cast<void*>(&hkFrameStageNotify),
+		reinterpret_cast<void**>(&oFrameStageNotify));
+	debug::Log("[hooks] CreateMove hook status=%d FrameStageNotify hook status=%d",
+		static_cast<int>(createStatus), static_cast<int>(frameStatus));
+	if (createStatus != MH_OK || frameStatus != MH_OK)
+	{
+		debug::Log("[hooks] failed to create gameplay hooks");
+		return false;
+	}
+
+	const auto createEnableStatus = MH_EnableHook(pCreateMove);
+	const auto frameEnableStatus = MH_EnableHook(pFrameStageNotify);
+	debug::Log("[hooks] CreateMove enable status=%d FrameStageNotify enable status=%d",
+		static_cast<int>(createEnableStatus), static_cast<int>(frameEnableStatus));
+	if (createEnableStatus != MH_OK || frameEnableStatus != MH_OK)
+	{
+		debug::Log("[hooks] failed to enable gameplay hooks");
+		return false;
+	}
+
+	debug::Log("[hooks] CreateMove and FrameStageNotify enabled");
+	return true;
+}
+
 bool minhooks()
 {
 	const auto clientModule = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
@@ -191,10 +324,45 @@ bool minhooks()
 
 	pUpdateAccuracyPenality = reinterpret_cast<void*>(clientModule + 0x829410);
 	pGetSpread = reinterpret_cast<void*>(clientModule + 0x80EB60);
-	pGetInaccuracy = reinterpret_cast<void*>(clientModule + 0x80D870);
+	pGetInaccuracy = reinterpret_cast<void*>(FindPattern(clientModule,
+		"48 89 5C 24 ? 55 56 57 48 81 EC ? ? ? ? 44 0F 29 84 24"));
+	pFrameStageNotify = reinterpret_cast<void*>(FindPattern(clientModule,
+		"48 89 5C 24 ? 48 89 6C 24 ? 57 48 83 EC ? 48 8B F9 33 ED"));
+	const auto createMoveReference = FindPattern(clientModule,
+		"FF FF FF FF 48 8D 05 ? ? ? ? 48 89 0D ? ? ? ?");
+	const auto createMoveLeaTarget = ResolveRelativeAddress(createMoveReference, 7, 11);
+	const auto createMoveStoreTarget = ResolveRelativeAddress(createMoveReference, 14, 18);
+	__try
+	{
+		pCreateMove = createMoveStoreTarget ? *reinterpret_cast<void**>(createMoveStoreTarget) : nullptr;
+		if (!pCreateMove && createMoveLeaTarget)
+			pCreateMove = *reinterpret_cast<void**>(createMoveLeaTarget);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		pCreateMove = nullptr;
+	}
+	debug::Log("[memory] CreateMove reference=%p leaTarget=%p storeTarget=%p target=%p",
+		reinterpret_cast<void*>(createMoveReference),
+		reinterpret_cast<void*>(createMoveLeaTarget),
+		reinterpret_cast<void*>(createMoveStoreTarget), pCreateMove);
 
-	debug::Log("[accuracy] UpdateAccuracyPenalty=%p GetSpread=%p GetInaccuracy=%p",
+	const auto inputInstruction = FindPattern(clientModule,
+		"84 C0 74 0C 48 8D 0D ? ? ? ? E8 ? ? ? ?");
+	const auto inputGlobal = ResolveRelativeAddress(inputInstruction, 7, 11);
+	__try
+	{
+		pCsgoInput = inputGlobal ? *reinterpret_cast<void**>(inputGlobal) : nullptr;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		pCsgoInput = nullptr;
+	}
+
+	debug::Log("[memory] UpdateAccuracyPenalty=%p GetSpread=%p GetInaccuracy=%p",
 		pUpdateAccuracyPenality, pGetSpread, pGetInaccuracy);
+	debug::Log("[memory] FrameStageNotify=%p CreateMove=%p csgo_input=%p",
+		pFrameStageNotify, pCreateMove, pCsgoInput);
 	return true;
 }
 
@@ -202,8 +370,7 @@ DWORD WINAPI MainThread(LPVOID lpReserved)
 {
 	debug::Initialize();
 	debug::Log("[init] starting D3D11 hook thread");
-	while (!minhooks())
-		Sleep(100);
+	
 	bool init_hook = false;
 	do
 	{

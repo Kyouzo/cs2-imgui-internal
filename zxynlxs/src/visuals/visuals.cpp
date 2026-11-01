@@ -371,9 +371,15 @@ void visuals::PlayerESP()
         viewMatrixAddress = clientModule + offsets::dwViewMatrix;
     auto ViewMatrix = reinterpret_cast<float(*)[4][4]>(viewMatrixAddress);
 
-    uintptr_t localPlayerPawn = 0;
-    if (!ReadValue(clientModule + offsets::dwLocalPlayerPawn,
-        localPlayerPawn, "dwLocalPlayerPawn"))
+    // dwLocalPlayerPawn can follow the camera/observer state while dead. Resolve
+    // the pawn from the local controller as the authoritative player identity,
+    // and keep dwLocalPlayerPawn only as a compatibility fallback.
+    uintptr_t localPlayerController = 0;
+    uintptr_t localPlayerPawnFromOffset = 0;
+    if (!ReadValue(clientModule + offsets::dwLocalPlayerController,
+        localPlayerController, "dwLocalPlayerController") ||
+        !ReadValue(clientModule + offsets::dwLocalPlayerPawn,
+            localPlayerPawnFromOffset, "dwLocalPlayerPawn"))
         return;
 
     if (!loggedFirstPass)
@@ -381,24 +387,9 @@ void visuals::PlayerESP()
         debug::Log("[esp] first pass: client=0x%p engine=0x%p localPawn=0x%p",
             reinterpret_cast<void*>(clientModule),
             reinterpret_cast<void*>(engineModule),
-            reinterpret_cast<void*>(localPlayerPawn));
+            reinterpret_cast<void*>(localPlayerPawnFromOffset));
         loggedFirstPass = true;
     }
-
-    if (!localPlayerPawn)
-        return;
-
-    uint8_t localLifeState = 0;
-    if (!ReadValue(localPlayerPawn + offsets::m_lifeState,
-        localLifeState, "localPawn.m_lifeState"))
-        return;
-
-    const bool localIsDead = localLifeState != 0;
-
-    uint8_t localTeam = 0;
-    if (!ReadValue(localPlayerPawn + offsets::m_iTeamNum,
-        localTeam, "localPawn.m_iTeamNum"))
-        return;
 
     uintptr_t entitySystemGlobal = FindEntitySystemGlobal(clientModule);
     uintptr_t entitySystem = 0;
@@ -426,6 +417,35 @@ void visuals::PlayerESP()
 
     const auto entityList = entitySystem + entityListOffset;
 
+    uintptr_t localPlayerPawn = 0;
+    if (localPlayerController)
+    {
+        std::uint32_t localPawnHandle = 0;
+        if (ReadValue(localPlayerController + offsets::m_hPlayerPawn,
+            localPawnHandle, "localController.m_hPlayerPawn") &&
+            localPawnHandle != 0xFFFFFFFFu)
+        {
+            localPlayerPawn = GetEntityByIndex(
+                entityList, localPawnHandle & 0x7FFFu, "localPawn.identity");
+        }
+    }
+    if (!localPlayerPawn)
+        localPlayerPawn = localPlayerPawnFromOffset;
+    if (!localPlayerPawn)
+        return;
+
+    uint8_t localLifeState = 0;
+    if (!ReadValue(localPlayerPawn + offsets::m_lifeState,
+        localLifeState, "localPawn.m_lifeState"))
+        return;
+
+    const bool localIsDead = localLifeState != 0;
+
+    uint8_t localTeam = 0;
+    if (!ReadValue(localPlayerPawn + offsets::m_iTeamNum,
+        localTeam, "localPawn.m_iTeamNum"))
+        return;
+
     uintptr_t spectatedPawn = 0;
     if (localIsDead)
         spectatedPawn = ResolveObserverTarget(
@@ -452,19 +472,14 @@ void visuals::PlayerESP()
         if (!pCSPlayerPawnPointer)
             continue;
 
-        // When teammate ESP is enabled, keep the local pawn out of the entity pass.
-        if (!globals::espConfig.onlyEnemies && pCSPlayerPawnPointer == localPlayerPawn)
-            continue;
-
-        if (localIsDead && spectatedPawn && pCSPlayerPawnPointer == spectatedPawn)
-            continue;
-
         uint8_t lifeState = 0;
         if (!ReadValue(pCSPlayerPawnPointer + offsets::m_lifeState,
             lifeState, "pawn.m_lifeState"))
             continue;
         if (lifeState != 0)
         {
+            // Spectator tracking must happen before the watched-pawn exclusion;
+            // otherwise a dead spectator watching our current target is skipped.
             if (spectatorCount < spectators.size() &&
                 ResolveObserverTarget(pCSPlayerPawnPointer, entityList, "spectator.observerTarget") == localPlayerPawn)
             {
@@ -476,6 +491,16 @@ void visuals::PlayerESP()
             }
             continue;
         }
+
+        // When teammate ESP is enabled, keep the local pawn out of the entity pass.
+        if (!globals::espConfig.onlyEnemies && pCSPlayerPawnPointer == localPlayerPawn)
+            continue;
+
+        // Do not draw the player currently being watched after our death. The
+        // local controller-derived pawn above keeps this correct even when the
+        // engine's local-pawn pointer follows the observer camera.
+        if (localIsDead && spectatedPawn && pCSPlayerPawnPointer == spectatedPawn)
+            continue;
 
         int health = 0;
         if (!ReadValue(pCSPlayerPawnPointer + offsets::m_iHealth,
