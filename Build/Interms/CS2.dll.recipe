@@ -2,7 +2,7 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>Z:\FMM\CS2\mgmas\Build\CS2.dll</FullPath>
+      <FullPath>Z:\Projects\cs2internal\Build\CS2.dll</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />

@@ -1,10 +1,10 @@
 {
     "Version": "1.2",
     "Data": {
-        "Source": "z:\\fmm\\cs2\\mgmas\\imgui directx 11 kiero hook\\src\\debug\\debug.cpp",
+        "Source": "z:\\projects\\cs2internal\\zxynlxs\\src\\debug\\debug.cpp",
         "ProvidedModule": "",
         "Includes": [
-            "z:\\fmm\\cs2\\mgmas\\imgui directx 11 kiero hook\\src\\debug\\debug.h",
+            "z:\\projects\\cs2internal\\zxynlxs\\src\\debug\\debug.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\um\\windows.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\shared\\winapifamily.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\shared\\winpackagefamily.h",
@@ -236,13 +236,13 @@
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\um\\mcx.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\um\\imm.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\um\\ime_cmodes.h",
-            "z:\\vstudio\\vs\\vc\\tools\\msvc\\14.51.36231\\include\\cstdio",
+            "z:\\vstudio\\vs\\vc\\tools\\msvc\\14.51.36231\\include\\cstdarg",
             "z:\\vstudio\\vs\\vc\\tools\\msvc\\14.51.36231\\include\\yvals_core.h",
             "z:\\vstudio\\vs\\vc\\tools\\msvc\\14.51.36231\\include\\xkeycheck.h",
+            "z:\\vstudio\\vs\\vc\\tools\\msvc\\14.51.36231\\include\\cstdio",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\ucrt\\stdio.h",
             "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\ucrt\\corecrt_wstdio.h",
-            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\ucrt\\corecrt_stdio_config.h",
-            "z:\\vstudio\\vs\\vc\\tools\\msvc\\14.51.36231\\include\\cstdarg"
+            "c:\\program files (x86)\\windows kits\\10\\include\\10.0.28000.0\\ucrt\\corecrt_stdio_config.h"
         ],
         "ImportedModules": [],
         "ImportedHeaderUnits": []

@@ -18,6 +18,10 @@ mono_crash.*
 
 # Build results
 [Dd]ebug/
+# The project keeps its runtime logging implementation under src/debug.
+!zxynlxs/src/debug/
+!zxynlxs/src/debug/*.h
+!zxynlxs/src/debug/*.cpp
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/

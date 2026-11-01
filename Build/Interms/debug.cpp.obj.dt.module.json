@@ -3,10 +3,10 @@
     "revision": 0,
     "rules": [
         {
-            "primary-output": "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\debug.obj",
+            "primary-output": "Z:\\Projects\\cs2internal\\Build\\Interms\\debug.obj",
             "outputs": [
-                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\debug.cpp.obj.dt.module.json",
-                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\debug.cpp.obj.dt.d.json"
+                "Z:\\Projects\\cs2internal\\Build\\Interms\\debug.cpp.obj.dt.module.json",
+                "Z:\\Projects\\cs2internal\\Build\\Interms\\debug.cpp.obj.dt.d.json"
             ],
             "requires": []
         }

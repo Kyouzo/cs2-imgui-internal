@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "../math/math.h"
 
 namespace offsets
 {
@@ -11,12 +12,16 @@ namespace offsets
 	constexpr std::ptrdiff_t dwEntityList = 0x271EB08;
 	constexpr std::ptrdiff_t dwLocalPlayerController = 0x25413F8;
 	constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x25698C8;
+	constexpr std::ptrdiff_t dwViewAngles = 0x2580008;
 	constexpr std::ptrdiff_t dwViewMatrix = 0x256F1D0;
 
 	constexpr std::ptrdiff_t m_hPlayerPawn = 0x92C; // CHandle<C_CSPlayerPawn>
+	constexpr std::ptrdiff_t m_hObserverPawn = 0x930; // CHandle<C_CSObserverPawn>
 	constexpr std::ptrdiff_t m_iszPlayerName = 0x6FC; // char[128], CBasePlayerController
 	constexpr std::ptrdiff_t m_iTeamNum = 0x3E7; // uint8
 	constexpr std::ptrdiff_t m_vOldOrigin = 0x14A4; // Vector
+	constexpr std::ptrdiff_t m_vecAbsOrigin = 0xC8; // CGameSceneNode::m_vecAbsOrigin
+	constexpr std::ptrdiff_t m_vecViewOffset = 0xF60; // C_BaseModelEntity::m_vecViewOffset
 	constexpr std::ptrdiff_t m_iHealth = 0x34C; // int32
 	constexpr std::ptrdiff_t m_lifeState = 0x354; // uint8
 	constexpr std::ptrdiff_t m_pGameSceneNode = 0x330; // CGameSceneNode*
@@ -38,5 +43,7 @@ namespace visuals
 	extern uintptr_t clientModule;
 	extern uintptr_t engineModule;
 
-	void PlayerESP();
+	void PlayerESP(bool renderPlayers = true);
+	bool FindBestAimPoint(const Vec3& currentView, Vec3& targetAngles,
+		bool enemiesOnly, int targetBone, float maxFov);
 }

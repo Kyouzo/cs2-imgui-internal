@@ -3,5 +3,6 @@
 namespace globals
 {
     bool esp = false;
+    AimConfig aimConfig{};
     EspConfig espConfig{};
 }

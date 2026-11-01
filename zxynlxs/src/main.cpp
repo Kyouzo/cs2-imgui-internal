@@ -4,14 +4,56 @@
 #include "includes.h"
 #include "globals/globals.h"
 #include "visuals/visuals.h"
+#include "aimbot/Aimbot.h"
 #include "debug/debug.h"
 #include "kiero/minhook/include/MinHook.h"
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <cmath>
 #include <sstream>
 #include <string>
 #include <vector>
+#include "Z:/Projects/JetBrainsMonoNerdFontRegular.h"
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+namespace
+{
+	const char* AimKeyName(int key)
+	{
+		switch (key)
+		{
+		case VK_XBUTTON1: return "Mouse 4";
+		case VK_XBUTTON2: return "Mouse 5";
+		case VK_LBUTTON: return "Left mouse";
+		case VK_RBUTTON: return "Right mouse";
+		case VK_MBUTTON: return "Middle mouse";
+		case VK_SHIFT: return "Shift";
+		case VK_CONTROL: return "Ctrl";
+		case VK_MENU: return "Alt";
+		case VK_SPACE: return "Space";
+		case VK_TAB: return "Tab";
+		case VK_CAPITAL: return "Caps Lock";
+		case VK_ESCAPE: return "Escape";
+		default: break;
+		}
+
+		static char keyName[16]{};
+		if (key >= 'A' && key <= 'Z')
+		{
+			keyName[0] = static_cast<char>(key);
+			keyName[1] = '\0';
+			return keyName;
+		}
+		if (key >= '0' && key <= '9')
+		{
+			keyName[0] = static_cast<char>(key);
+			keyName[1] = '\0';
+			return keyName;
+		}
+		return "Unassigned";
+	}
+}
 
 Present oPresent;
 HWND window = NULL;
@@ -19,28 +61,79 @@ WNDPROC oWndProc;
 ID3D11Device* pDevice = NULL;
 ID3D11DeviceContext* pContext = NULL;
 ID3D11RenderTargetView* mainRenderTargetView;
+HMODULE gModule = nullptr;
+std::atomic_bool gUnloadRequested = false;
+std::atomic_bool gUnloadThreadStarted = false;
+std::atomic_uint gPresentCallbacks = 0;
+std::atomic_uint gWndProcCallbacks = 0;
+std::atomic_bool gImGuiInitialized = false;
+
+static void**          g_shadowVtable   = nullptr;
+static void**          g_realVtableOrig = nullptr;
+static IDXGISwapChain* g_hookedSwapChain = nullptr;
+
+void RequestUnload();
 
 void InitImGui()
 {
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags = ImGuiConfigFlags_NoMouseCursorChange;
+	ImFontConfig fontConfig;
+	fontConfig.FontDataOwnedByAtlas = false;
+	io.Fonts->AddFontFromMemoryTTF(JetBrainsMonoNerdFontRegular,
+		static_cast<int>(sizeof(JetBrainsMonoNerdFontRegular)), 14.0f, &fontConfig,
+		io.Fonts->GetGlyphRangesDefault());
+	ImGui::StyleColorsDark();
+	ImGuiStyle& style = ImGui::GetStyle();
+	style.WindowRounding = 8.0f;
+	style.ChildRounding = 6.0f;
+	style.FrameRounding = 5.0f;
+	style.PopupRounding = 5.0f;
+	style.ScrollbarRounding = 6.0f;
+	style.GrabRounding = 5.0f;
+	style.WindowPadding = {14.0f, 12.0f};
+	style.FramePadding = {8.0f, 5.0f};
+	style.ItemSpacing = {8.0f, 6.0f};
+	style.Colors[ImGuiCol_WindowBg] = {0.035f, 0.045f, 0.065f, 0.98f};
+	style.Colors[ImGuiCol_ChildBg] = {0.055f, 0.065f, 0.090f, 0.72f};
+	style.Colors[ImGuiCol_FrameBg] = {0.090f, 0.105f, 0.140f, 1.0f};
+	style.Colors[ImGuiCol_FrameBgHovered] = {0.120f, 0.170f, 0.230f, 1.0f};
+	style.Colors[ImGuiCol_Button] = {0.100f, 0.160f, 0.230f, 1.0f};
+	style.Colors[ImGuiCol_ButtonHovered] = {0.150f, 0.330f, 0.520f, 1.0f};
+	style.Colors[ImGuiCol_Header] = {0.100f, 0.180f, 0.270f, 1.0f};
+	style.Colors[ImGuiCol_HeaderHovered] = {0.140f, 0.300f, 0.460f, 1.0f};
 	ImGui_ImplWin32_Init(window);
 	ImGui_ImplDX11_Init(pDevice, pContext);
+	gImGuiInitialized = true;
 }
 
 LRESULT __stdcall WndProc(const HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+	++gWndProcCallbacks;
 
-	if (true && ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
+	if (!gUnloadRequested && ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
+	{
+		--gWndProcCallbacks;
 		return true;
+	}
 
-	return CallWindowProc(oWndProc, hWnd, uMsg, wParam, lParam);
+	const auto result = CallWindowProc(oWndProc, hWnd, uMsg, wParam, lParam);
+	--gWndProcCallbacks;
+	return result;
 }
 
 bool init = false;
 bool draw = false;
 HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
 {
+	++gPresentCallbacks;
+	if (gUnloadRequested)
+	{
+		const auto result = oPresent(pSwapChain, SyncInterval, Flags);
+		--gPresentCallbacks;
+		return result;
+	}
+
 	if (!init)
 	{
 		if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D11Device), (void**)& pDevice)))
@@ -56,20 +149,70 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 			oWndProc = (WNDPROC)SetWindowLongPtr(window, GWLP_WNDPROC, (LONG_PTR)WndProc);
 			InitImGui();
 			init = true;
+
+			// Shadow the real swap chain's vtable so the MinHook inline JMP
+			// in d3d11.dll can be removed immediately — all future Present
+			// calls go through heap memory only (no module bytes modified).
+			void** realVtable = *reinterpret_cast<void***>(pSwapChain);
+			constexpr size_t kSwapChainSlots = 18;
+			void** shadow = static_cast<void**>(
+				VirtualAlloc(nullptr, kSwapChainSlots * sizeof(void*),
+					MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+			if (shadow)
+			{
+				memcpy(shadow, realVtable, kSwapChainSlots * sizeof(void*));
+				shadow[8] = reinterpret_cast<void*>(&hkPresent);
+				// Point oPresent directly at the real function (not the MinHook trampoline)
+				// before the trampoline is freed by MH_RemoveHook.
+				oPresent = reinterpret_cast<Present>(realVtable[8]);
+				*reinterpret_cast<void***>(pSwapChain) = shadow;
+				g_shadowVtable   = shadow;
+				g_realVtableOrig = realVtable;
+				g_hookedSwapChain = pSwapChain;
+				// Remove the inline JMP from d3d11.dll — module bytes are clean again.
+				if (auto* table = kiero::getMethodsTable())
+				{
+					void* presentTarget = reinterpret_cast<void*>(table[8]);
+					MH_DisableHook(presentTarget);
+					MH_RemoveHook(presentTarget);
+				}
+			}
 		}
 
 		else
-			return oPresent(pSwapChain, SyncInterval, Flags);
+		{
+			const auto result = oPresent(pSwapChain, SyncInterval, Flags);
+			--gPresentCallbacks;
+			return result;
+		}
 	}
 
 	if (GetAsyncKeyState(VK_INSERT) & 1) {
 		draw = !draw;
 		debug::Log("[ui] menu %s", draw ? "opened" : "closed");
 	}
+	if (GetAsyncKeyState(VK_END) & 1)
+	{
+		draw = false;
+		RequestUnload();
+		const auto result = oPresent(pSwapChain, SyncInterval, Flags);
+		--gPresentCallbacks;
+		return result;
+	}
 
 	ImGui_ImplDX11_NewFrame();
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
+	aimbot::Tick();
+	if (globals::aimConfig.enabled && globals::aimConfig.showFov)
+	{
+		const ImVec2 display = ImGui::GetIO().DisplaySize;
+		const ImVec2 center{display.x * 0.5f, display.y * 0.5f};
+		const float fovRadians = std::clamp(globals::aimConfig.fov, 0.1f, 180.0f) * 0.5f * 0.0174532925f;
+		const float radius = std::tan(fovRadians) * (display.y * 0.5f);
+		ImGui::GetBackgroundDrawList()->AddCircle(center, std::clamp(radius, 4.0f, display.y),
+			ImColor(110, 190, 255, 185), 96, 1.2f);
+	}
 	if (globals::espConfig.crosshair)
 	{
 		const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -94,7 +237,7 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 		if (globals::espConfig.crosshairDot)
 			bar({cx - thickness * 0.5f, cy - thickness * 0.5f}, {cx + thickness * 0.5f, cy + thickness * 0.5f});
 	}
-	if (globals::esp) {
+	if (globals::esp || globals::espConfig.spectatorList) {
 		static bool loggedEspEntry = false;
 		if (!loggedEspEntry) {
 			debug::Log("[esp] entering render pass");
@@ -102,7 +245,7 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 		}
 		__try
 		{
-			visuals::PlayerESP();
+			visuals::PlayerESP(globals::esp);
 		}
 		__except (EXCEPTION_EXECUTE_HANDLER)
 		{
@@ -114,35 +257,91 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 		
 	if (draw)
 	{
-		ImGui::SetNextWindowSize({360.0f, 330.0f}, ImGuiCond_FirstUseEver);
-		ImGui::Begin("Visuals", &draw);
-		const bool previousEsp = globals::esp;
-		ImGui::TextUnformatted("Player Info In World");
+		ImGui::SetNextWindowSize({560.0f, 390.0f}, ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSizeConstraints({500.0f, 340.0f}, {820.0f, 620.0f});
+		ImGui::Begin("CS2 INTERNAL", &draw, ImGuiWindowFlags_NoCollapse);
 		ImGui::Separator();
-		ImGui::Checkbox("Master switch", &globals::esp);
-		ImGui::Checkbox("Enemies only", &globals::espConfig.onlyEnemies);
-		if (ImGui::CollapsingHeader("Player position", ImGuiTreeNodeFlags_DefaultOpen))
+		const bool previousEsp = globals::esp;
+		if (ImGui::BeginTabBar("menu_tabs", ImGuiTabBarFlags_NoCloseWithMiddleMouseButton))
 		{
-			ImGui::Checkbox("Cornered box", &globals::espConfig.cornerBox);
-			ImGui::Checkbox("Skeleton", &globals::espConfig.skeleton);
-			ImGui::Checkbox("Snapline", &globals::espConfig.snapline);
-			ImGui::Checkbox("Head marker", &globals::espConfig.headMarker);
-			ImGui::Checkbox("Position arrow", &globals::espConfig.positionArrow);
-			ImGui::Checkbox("Team colors", &globals::espConfig.teamColors);
-		}
-		if (ImGui::CollapsingHeader("Player health", ImGuiTreeNodeFlags_DefaultOpen))
-		{
-			ImGui::Checkbox("Health bar", &globals::espConfig.healthBar);
-			ImGui::Checkbox("Health text", &globals::espConfig.healthText);
-		}
-		if (ImGui::CollapsingHeader("Crosshair"))
-		{
-			ImGui::Checkbox("Enabled", &globals::espConfig.crosshair);
-			ImGui::Checkbox("Dot", &globals::espConfig.crosshairDot);
-			ImGui::Checkbox("Outline", &globals::espConfig.crosshairOutline);
-			ImGui::SliderFloat("Length", &globals::espConfig.crosshairLength, 0.0f, 20.0f);
-			ImGui::SliderFloat("Gap", &globals::espConfig.crosshairGap, 0.0f, 20.0f);
-			ImGui::SliderFloat("Thickness", &globals::espConfig.crosshairThickness, 1.0f, 5.0f);
+			if (ImGui::BeginTabItem("Overview"))
+			{
+	
+				ImGui::Checkbox("Enable ESP", &globals::esp);
+				ImGui::SameLine(240.0f);
+				ImGui::Checkbox("Enemies only", &globals::espConfig.onlyEnemies);
+				ImGui::Checkbox("Spectator list", &globals::espConfig.spectatorList);
+				ImGui::Checkbox("Team colors", &globals::espConfig.teamColors);
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Player"))
+			{
+				ImGui::Columns(2, "player_columns", false);
+				ImGui::TextDisabled("POSITION");
+				ImGui::Checkbox("Cornered box", &globals::espConfig.cornerBox);
+				ImGui::Checkbox("Skeleton", &globals::espConfig.skeleton);
+				ImGui::Checkbox("Snapline", &globals::espConfig.snapline);
+				ImGui::Checkbox("Head marker", &globals::espConfig.headMarker);
+				ImGui::Checkbox("Position arrow", &globals::espConfig.positionArrow);
+				ImGui::NextColumn();
+				ImGui::TextDisabled("INFO");
+				ImGui::Checkbox("Health bar", &globals::espConfig.healthBar);
+				ImGui::Checkbox("Health text", &globals::espConfig.healthText);
+				ImGui::Checkbox("Name", &globals::espConfig.name);
+				ImGui::Checkbox("Distance", &globals::espConfig.distance);
+				ImGui::Checkbox("360 alert", &globals::espConfig.alert360);
+				ImGui::Columns(1);
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Crosshair"))
+			{
+				ImGui::Checkbox("Enabled", &globals::espConfig.crosshair);
+				ImGui::Checkbox("Dot", &globals::espConfig.crosshairDot);
+				ImGui::Checkbox("Outline", &globals::espConfig.crosshairOutline);
+				ImGui::SliderFloat("Length", &globals::espConfig.crosshairLength, 0.0f, 20.0f);
+				ImGui::SliderFloat("Gap", &globals::espConfig.crosshairGap, 0.0f, 20.0f);
+				ImGui::SliderFloat("Thickness", &globals::espConfig.crosshairThickness, 1.0f, 5.0f);
+				ImGui::EndTabItem();
+			}
+
+			if (ImGui::BeginTabItem("Aim"))
+			{
+				static bool captureAimKey = false;
+				ImGui::Checkbox("Enable aim assist", &globals::aimConfig.enabled);
+				ImGui::Checkbox("Show FOV circle", &globals::aimConfig.showFov);
+				ImGui::Checkbox("Hold bind to aim", &globals::aimConfig.requireKey);
+				ImGui::Checkbox("Enemies only", &globals::aimConfig.enemiesOnly);
+				ImGui::Combo("Target bone", &globals::aimConfig.targetBone, "Head\0Neck\0Chest\0Torso\0");
+				ImGui::Text("Aim key: %s", AimKeyName(globals::aimConfig.aimKey));
+				if (ImGui::Button(captureAimKey ? "Press a key or mouse button..." : "Bind aim key"))
+					captureAimKey = true;
+				if (captureAimKey)
+				{
+					if (GetAsyncKeyState(VK_ESCAPE) & 1)
+						captureAimKey = false;
+					else
+					{
+						for (int key = 3; key <= 255; ++key)
+						{
+							if (key == VK_ESCAPE || key == VK_LBUTTON || key == VK_RBUTTON || key == VK_MBUTTON)
+								continue;
+							if (GetAsyncKeyState(key) & 1)
+							{
+								globals::aimConfig.aimKey = key;
+								captureAimKey = false;
+								break;
+							}
+						}
+					}
+				}
+				ImGui::SliderFloat("FOV", &globals::aimConfig.fov, 0.5f, 30.0f, "%.1f deg");
+				ImGui::SliderFloat("Smoothing", &globals::aimConfig.smoothing, 1.0f, 20.0f, "%.1f");
+				ImGui::TextDisabled("Escape cancels key binding.");
+				ImGui::EndTabItem();
+			}
+			ImGui::EndTabBar();
 		}
 		if (previousEsp != globals::esp)
 			debug::Log("[ui] ESP %s", globals::esp ? "enabled" : "disabled");
@@ -154,7 +353,9 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 
 	pContext->OMSetRenderTargets(1, &mainRenderTargetView, NULL);
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-	return oPresent(pSwapChain, SyncInterval, Flags);
+	const auto result = oPresent(pSwapChain, SyncInterval, Flags);
+	--gPresentCallbacks;
+	return result;
 }
 inline void* pUpdateAccuracyPenality = nullptr;
 inline void* pGetSpread = nullptr;
@@ -384,17 +585,86 @@ DWORD WINAPI MainThread(LPVOID lpReserved)
 	return TRUE;
 }
 
+DWORD WINAPI UnloadThread(LPVOID)
+{
+	// Disable any remaining MinHook hooks, then wait for in-flight callbacks to drain.
+	MH_DisableHook(MH_ALL_HOOKS);
+	debug::Log("[unload] waiting for active render callbacks");
+	while (gPresentCallbacks.load() != 0 || gWndProcCallbacks.load() != 0)
+		Sleep(1);
+
+	// Restore the real vtable pointer in the swap chain object (safe — no concurrent calls).
+	if (g_hookedSwapChain && g_realVtableOrig)
+	{
+		*reinterpret_cast<void***>(g_hookedSwapChain) = g_realVtableOrig;
+		g_hookedSwapChain = nullptr;
+		g_realVtableOrig  = nullptr;
+	}
+	if (g_shadowVtable)
+	{
+		VirtualFree(g_shadowVtable, 0, MEM_RELEASE);
+		g_shadowVtable = nullptr;
+	}
+
+	kiero::shutdown();
+	MH_Uninitialize();
+
+	if (window && oWndProc)
+	{
+		SetWindowLongPtr(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(oWndProc));
+		oWndProc = nullptr;
+	}
+
+	if (gImGuiInitialized.exchange(false))
+	{
+		ImGui_ImplDX11_Shutdown();
+		ImGui_ImplWin32_Shutdown();
+		ImGui::DestroyContext();
+	}
+
+	if (mainRenderTargetView)
+	{
+		mainRenderTargetView->Release();
+		mainRenderTargetView = nullptr;
+	}
+	if (pContext)
+	{
+		pContext->Release();
+		pContext = nullptr;
+	}
+	if (pDevice)
+	{
+		pDevice->Release();
+		pDevice = nullptr;
+	}
+
+	debug::Log("[unload] cleanup complete");
+	FreeLibraryAndExitThread(gModule, 0);
+	return 0;
+}
+
+void RequestUnload()
+{
+	gUnloadRequested = true;
+	bool expected = false;
+	if (gUnloadThreadStarted.compare_exchange_strong(expected, true))
+		CreateThread(nullptr, 0, UnloadThread, nullptr, 0, nullptr);
+}
+
 BOOL WINAPI DllMain(HMODULE hMod, DWORD dwReason, LPVOID lpReserved)
 {
 	switch (dwReason)
 	{
 	case DLL_PROCESS_ATTACH:
+		gModule = hMod;
 		DisableThreadLibraryCalls(hMod);
 		CreateThread(nullptr, 0, MainThread, hMod, 0, nullptr);
 		break;
 	case DLL_PROCESS_DETACH:
-		kiero::shutdown();
+		// Explicit unload is performed by UnloadThread. Avoid teardown from
+		// DllMain while the loader lock is held.
 		break;
 	}
+	UNREFERENCED_PARAMETER(lpReserved);
 	return TRUE;
 }

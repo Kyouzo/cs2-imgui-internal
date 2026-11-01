@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 #include <array>
 #include <utility>
 #include <Windows.h>
@@ -20,6 +21,46 @@ uintptr_t visuals::engineModule = 0;
 
 namespace
 {
+    using CreateInterfaceFn = void* (*)(const char*, int*);
+    using IsInGameFn = bool(__fastcall*)(void*);
+
+    constexpr std::size_t kIsInGameVtableIndex = 39;
+
+    bool IsInGame(uintptr_t engineModule)
+    {
+        static void* engineToClient = nullptr;
+        static bool loggedFailure = false;
+
+        if (!engineToClient)
+        {
+            const auto createInterface = reinterpret_cast<CreateInterfaceFn>(
+                GetProcAddress(reinterpret_cast<HMODULE>(engineModule), "CreateInterface"));
+            if (createInterface)
+                engineToClient = createInterface("Source2EngineToClient001", nullptr);
+        }
+
+        if (!engineToClient)
+        {
+            if (!loggedFailure)
+            {
+                debug::Log("[esp] Source2EngineToClient001 is unavailable");
+                loggedFailure = true;
+            }
+            return false;
+        }
+
+        __try
+        {
+            const auto vtable = *reinterpret_cast<void***>(engineToClient);
+            const auto isInGame = reinterpret_cast<IsInGameFn>(vtable[kIsInGameVtableIndex]);
+            return isInGame && isInGame(engineToClient);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     struct BoneTransform
     {
         Vec3 translation;
@@ -296,6 +337,15 @@ namespace
         return "?";
     }
 
+    ImU32 SpectatorTeamColor(std::uint8_t team)
+    {
+        if (team == 2)
+            return ImColor(255, 181, 72, 255); // T
+        if (team == 3)
+            return ImColor(91, 169, 255, 255); // CT
+        return ImColor(210, 210, 215, 255);
+    }
+
     struct SpectatorEntry
     {
         std::array<char, 128> name{};
@@ -325,6 +375,28 @@ namespace
         return valid;
     }
 
+    bool ReadBonePosition(uintptr_t pawn, std::size_t boneIndex, Vec3& position)
+    {
+        uintptr_t sceneNode = 0;
+        uintptr_t boneArray = 0;
+        if (!ReadValue(pawn + offsets::m_pGameSceneNode, sceneNode, "aim.m_pGameSceneNode") || !sceneNode ||
+            !ReadValue(sceneNode + offsets::m_modelState + offsets::m_boneCache,
+                boneArray, "aim.boneArray") || !boneArray)
+            return false;
+
+        struct BoneEntry
+        {
+            float x, y, z, padding;
+            float rotation[4];
+        };
+        BoneEntry bone{};
+        if (!ReadValue(boneArray + boneIndex * sizeof(BoneEntry), bone, "aim.bone"))
+            return false;
+
+        position = {bone.x, bone.y, bone.z};
+        return position.x != 0.0f || position.y != 0.0f || position.z != 0.0f;
+    }
+
     ImU32 HealthColor(int health)
     {
         const float fraction = std::clamp(static_cast<float>(health) / 100.0f, 0.0f, 1.0f);
@@ -339,9 +411,191 @@ namespace
             return ImColor(255, 92, 92, 255);
         return team == 3 ? ImColor(86, 165, 255, 255) : ImColor(255, 190, 70, 255);
     }
+
+    void Draw360Alert(ImDrawList* draw, const Vec3& worldPosition,
+        float(*viewMatrix)[4][4], ImU32 color, float distanceMeters)
+    {
+        if (!draw || !viewMatrix)
+            return;
+
+        const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+        if (displaySize.x <= 0.0f || displaySize.y <= 0.0f)
+            return;
+
+        float w = (*viewMatrix)[3][0] * worldPosition.x +
+            (*viewMatrix)[3][1] * worldPosition.y +
+            (*viewMatrix)[3][2] * worldPosition.z + (*viewMatrix)[3][3];
+        if (std::fabs(w) < 0.001f)
+            w = 0.001f;
+
+        float clipX = ((*viewMatrix)[0][0] * worldPosition.x +
+            (*viewMatrix)[0][1] * worldPosition.y +
+            (*viewMatrix)[0][2] * worldPosition.z + (*viewMatrix)[0][3]) / w;
+        float clipY = ((*viewMatrix)[1][0] * worldPosition.x +
+            (*viewMatrix)[1][1] * worldPosition.y +
+            (*viewMatrix)[1][2] * worldPosition.z + (*viewMatrix)[1][3]) / w;
+
+        // Behind-camera points need their direction flipped before finding the
+        // nearest point on the screen perimeter.
+        if (w < 0.0f)
+        {
+            clipX = -clipX;
+            clipY = -clipY;
+        }
+
+        const ImVec2 center{displaySize.x * 0.5f, displaySize.y * 0.5f};
+        const float directionX = clipX;
+        const float directionY = -clipY;
+        const float length = std::sqrt(directionX * directionX + directionY * directionY);
+        if (length < 0.001f)
+            return;
+
+        const float radius = std::max(30.0f, std::min(displaySize.x, displaySize.y) * 0.42f);
+        const float scale = radius / std::max(std::fabs(directionX), std::fabs(directionY));
+        const ImVec2 tip{center.x + directionX * scale, center.y + directionY * scale};
+        const float unitX = directionX / length;
+        const float unitY = directionY / length;
+        const ImVec2 baseCenter{tip.x - unitX * 13.0f, tip.y - unitY * 13.0f};
+        const ImVec2 normal{-unitY * 6.0f, unitX * 6.0f};
+        const ImVec2 left{baseCenter.x + normal.x, baseCenter.y + normal.y};
+        const ImVec2 right{baseCenter.x - normal.x, baseCenter.y - normal.y};
+
+        draw->AddTriangleFilled(tip, left, right, color);
+        draw->AddTriangle(tip, left, right, ImColor(0, 0, 0, 210), 1.0f);
+
+        char distanceLabel[32]{};
+        sprintf_s(distanceLabel, "%.0fm", distanceMeters);
+        const ImVec2 textSize = ImGui::CalcTextSize(distanceLabel);
+        draw->AddText({tip.x - textSize.x * 0.5f, tip.y + 8.0f},
+            ImColor(255, 255, 255, 235), distanceLabel);
+    }
 }
 
-void visuals::PlayerESP()
+bool visuals::FindBestAimPoint(const Vec3& currentView, Vec3& targetAngles,
+    bool enemiesOnly, int targetBone, float maxFov)
+{
+    clientModule = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
+    engineModule = reinterpret_cast<uintptr_t>(GetModuleHandleA("engine2.dll"));
+    if (!clientModule || !engineModule || !IsInGame(engineModule))
+        return false;
+
+    uintptr_t localController = 0;
+    uintptr_t localPawnFromOffset = 0;
+    if (!ReadValue(clientModule + offsets::dwLocalPlayerController, localController, "aim.localController") ||
+        !ReadValue(clientModule + offsets::dwLocalPlayerPawn, localPawnFromOffset, "aim.localPawn"))
+        return false;
+
+    uintptr_t entitySystem = 0;
+    const auto entitySystemGlobal = FindEntitySystemGlobal(clientModule);
+    if (entitySystemGlobal && ReadValue(entitySystemGlobal, entitySystem, "aim.entitySystem"))
+    {
+        // resolved global path
+    }
+    else if (!ReadValue(clientModule + offsets::dwEntityList,
+        entitySystem, "aim.dwGameEntitySystem"))
+    {
+        return false;
+    }
+    if (!entitySystem)
+        return false;
+
+    const auto entityListOffset = FindEntityListOffset(clientModule);
+    if (!entityListOffset)
+        return false;
+    const auto entityList = entitySystem + entityListOffset;
+
+    uintptr_t localPawn = 0;
+    uint32_t localPawnHandle = 0;
+    if (localController && ReadValue(localController + offsets::m_hPlayerPawn,
+        localPawnHandle, "aim.localPawnHandle") && localPawnHandle != 0xFFFFFFFFu)
+    {
+        localPawn = GetEntityByIndex(entityList, localPawnHandle & 0x7FFFu, "aim.localPawnIdentity");
+    }
+    if (!localPawn)
+        localPawn = localPawnFromOffset;
+    if (!localPawn)
+        return false;
+
+    uint8_t lifeState = 0;
+    uint8_t localTeam = 0;
+    Vec3 localEye{};
+    uintptr_t localSceneNode = 0;
+    Vec3 localSceneOrigin{};
+    Vec3 localViewOffset{};
+    if (!ReadValue(localPawn + offsets::m_lifeState, lifeState, "aim.localLifeState") || lifeState != 0 ||
+        !ReadValue(localPawn + offsets::m_iTeamNum, localTeam, "aim.localTeam") ||
+        !ReadValue(localPawn + offsets::m_pGameSceneNode, localSceneNode, "aim.localSceneNode") ||
+        !localSceneNode ||
+        !ReadValue(localSceneNode + offsets::m_vecAbsOrigin, localSceneOrigin, "aim.localAbsOrigin") ||
+        !ReadValue(localPawn + offsets::m_vecViewOffset, localViewOffset, "aim.localViewOffset"))
+        return false;
+    localEye = {localSceneOrigin.x + localViewOffset.x,
+        localSceneOrigin.y + localViewOffset.y,
+        localSceneOrigin.z + localViewOffset.z};
+
+    const float clampedFov = std::clamp(maxFov, 0.1f, 180.0f);
+    float bestDistance = clampedFov;
+    bool found = false;
+    for (uint32_t index = 1; index < 64; ++index)
+    {
+        const auto controller = GetEntityByIndex(entityList, index, "aim.controllerIdentity");
+        if (!controller)
+            continue;
+
+        uint32_t pawnHandle = 0;
+        if (!ReadValue(controller + offsets::m_hPlayerPawn, pawnHandle, "aim.pawnHandle") ||
+            pawnHandle == 0 || pawnHandle == 0xFFFFFFFFu)
+            continue;
+
+        const auto pawn = GetEntityByIndex(entityList, pawnHandle & 0x7FFFu, "aim.pawnIdentity");
+        if (!pawn || pawn == localPawn)
+            continue;
+
+        uint8_t targetLifeState = 0;
+        uint8_t targetTeam = 0;
+        int health = 0;
+        Vec3 targetOrigin{};
+        if (!ReadValue(pawn + offsets::m_lifeState, targetLifeState, "aim.targetLifeState") || targetLifeState != 0 ||
+            !ReadValue(pawn + offsets::m_iHealth, health, "aim.targetHealth") || health <= 0 ||
+            !ReadValue(pawn + offsets::m_iTeamNum, targetTeam, "aim.targetTeam") ||
+            !ReadValue(pawn + offsets::m_vOldOrigin, targetOrigin, "aim.targetOrigin"))
+            continue;
+        if (enemiesOnly && targetTeam == localTeam)
+            continue;
+
+        // Shared player rig: head=7, neck=6, chest=23, spine2/torso=4.
+        const std::size_t boneIndex = targetBone == 0 ? 7u :
+            (targetBone == 1 ? 6u : (targetBone == 2 ? 23u : 4u));
+        if (!ReadBonePosition(pawn, boneIndex, targetOrigin))
+        {
+            // Fallback only when the skeleton cache is unavailable.
+            targetOrigin.z += targetBone == 0 ? 64.0f :
+                (targetBone == 1 ? 56.0f : (targetBone == 2 ? 48.0f : 36.0f));
+        }
+        const Vec3 delta{targetOrigin.x - localEye.x, targetOrigin.y - localEye.y,
+            targetOrigin.z - localEye.z};
+        const float horizontal = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+        if (horizontal < 0.01f)
+            continue;
+
+        const float pitch = -std::atan2(delta.z, horizontal) * 57.2957795f;
+        const float yaw = std::atan2(delta.y, delta.x) * 57.2957795f;
+        float yawDelta = yaw - currentView.y;
+        while (yawDelta > 180.0f) yawDelta -= 360.0f;
+        while (yawDelta < -180.0f) yawDelta += 360.0f;
+        const float pitchDelta = pitch - currentView.x;
+        const float distance = std::sqrt(pitchDelta * pitchDelta + yawDelta * yawDelta);
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            targetAngles = {pitch, yaw, 0.0f};
+            found = true;
+        }
+    }
+    return found;
+}
+
+void visuals::PlayerESP(bool renderPlayers)
 {
     static bool loggedFirstPass = false;
 
@@ -355,13 +609,7 @@ void visuals::PlayerESP()
         return;
     }
 
-    // SIGNONSTATE_FULL (6): avoid touching entity data while loading or changing maps.
-    uintptr_t networkGameClient = 0;
-    std::int32_t signOnState = 0;
-    if (!ReadValue(engineModule + offsets::dwNetworkGameClient,
-        networkGameClient, "dwNetworkGameClient") || !networkGameClient ||
-        !ReadValue(networkGameClient + offsets::dwNetworkGameClient_signOnState,
-            signOnState, "networkGameClient.signOnState") || signOnState != 6)
+    if (!IsInGame(engineModule))
     {
         return;
     }
@@ -446,6 +694,11 @@ void visuals::PlayerESP()
         localTeam, "localPawn.m_iTeamNum"))
         return;
 
+    Vec3 localFeetPos;
+    if (!ReadValue(localPlayerPawn + offsets::m_vOldOrigin,
+        localFeetPos, "localPawn.m_vOldOrigin"))
+        return;
+
     uintptr_t spectatedPawn = 0;
     if (localIsDead)
         spectatedPawn = ResolveObserverTarget(
@@ -461,36 +714,57 @@ void visuals::PlayerESP()
             continue;
 
         uint32_t playerPawn = 0;
-        if (!ReadValue(playerController + offsets::m_hPlayerPawn,
-            playerPawn, "controller.m_hPlayerPawn"))
-            continue;
-        if (!playerPawn || playerPawn == 0xFFFFFFFFu)
+        uint32_t observerPawn = 0;
+        const bool hasPlayerPawn = ReadValue(playerController + offsets::m_hPlayerPawn,
+            playerPawn, "controller.m_hPlayerPawn") &&
+            playerPawn != 0 && playerPawn != 0xFFFFFFFFu;
+        const bool hasObserverPawn = ReadValue(playerController + offsets::m_hObserverPawn,
+            observerPawn, "controller.m_hObserverPawn") &&
+            observerPawn != 0 && observerPawn != 0xFFFFFFFFu;
+        if (!hasPlayerPawn && !hasObserverPawn)
             continue;
 
-        const auto pCSPlayerPawnPointer = GetEntityByIndex(
-            entityList, playerPawn & 0x7FFFu, "pawn.identity");
-        if (!pCSPlayerPawnPointer)
+        const auto pCSPlayerPawnPointer = hasPlayerPawn
+            ? GetEntityByIndex(entityList, playerPawn & 0x7FFFu, "pawn.identity")
+            : 0;
+        const auto observerPawnPointer = hasObserverPawn
+            ? GetEntityByIndex(entityList, observerPawn & 0x7FFFu, "observerPawn.identity")
+            : 0;
+        const auto observationPawn = pCSPlayerPawnPointer ? pCSPlayerPawnPointer : observerPawnPointer;
+        if (!observationPawn)
             continue;
 
         uint8_t lifeState = 0;
-        if (!ReadValue(pCSPlayerPawnPointer + offsets::m_lifeState,
+        if (!ReadValue(observationPawn + offsets::m_lifeState,
             lifeState, "pawn.m_lifeState"))
             continue;
-        if (lifeState != 0)
+
+        // Dead players normally expose m_hPlayerPawn. Spectator-only controllers
+        // can instead expose m_hObserverPawn, so resolve both paths.
+        if (lifeState != 0 || !pCSPlayerPawnPointer)
         {
-            // Spectator tracking must happen before the watched-pawn exclusion;
-            // otherwise a dead spectator watching our current target is skipped.
-            if (spectatorCount < spectators.size() &&
-                ResolveObserverTarget(pCSPlayerPawnPointer, entityList, "spectator.observerTarget") == localPlayerPawn)
+            auto watchedPawn = ResolveObserverTarget(
+                observationPawn, entityList, "spectator.observerTarget");
+            if (!watchedPawn && observerPawnPointer && observerPawnPointer != observationPawn)
+                watchedPawn = ResolveObserverTarget(
+                    observerPawnPointer, entityList, "spectator.observerPawnTarget");
+            if (globals::espConfig.spectatorList && spectatorCount < spectators.size() &&
+                watchedPawn == localPlayerPawn)
             {
                 ReadValue(playerController + offsets::m_iszPlayerName,
                     spectators[spectatorCount].name, "controller.m_iszPlayerName");
-                ReadValue(pCSPlayerPawnPointer + offsets::m_iTeamNum,
+                ReadValue(observationPawn + offsets::m_iTeamNum,
                     spectators[spectatorCount].team, "spectator.pawn.m_iTeamNum");
                 ++spectatorCount;
             }
             continue;
         }
+
+        if (!pCSPlayerPawnPointer)
+            continue;
+
+        if (!renderPlayers)
+            continue;
 
         // When teammate ESP is enabled, keep the local pawn out of the entity pass.
         if (!globals::espConfig.onlyEnemies && pCSPlayerPawnPointer == localPlayerPawn)
@@ -521,6 +795,18 @@ void visuals::PlayerESP()
         if (!ReadValue(pCSPlayerPawnPointer + offsets::m_vOldOrigin,
             feetPos, "pawn.m_vOldOrigin"))
             continue;
+
+        std::array<char, 128> playerName{};
+        if (!ReadValue(playerController + offsets::m_iszPlayerName,
+            playerName, "controller.m_iszPlayerName"))
+            playerName[0] = '\0';
+        playerName.back() = '\0';
+
+        const float deltaX = feetPos.x - localFeetPos.x;
+        const float deltaY = feetPos.y - localFeetPos.y;
+        const float deltaZ = feetPos.z - localFeetPos.z;
+        const float distanceMeters = std::sqrt(
+            deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) / 39.37f;
 
         std::array<Vec3, 128> bones{};
         const bool hasBones = ReadBonePositions(pCSPlayerPawnPointer, bones);
@@ -555,8 +841,22 @@ void visuals::PlayerESP()
         }
 
         Vec3 headWorld = hasBones ? bones[7] : Vec3{feetPos.x, feetPos.y, feetPos.z + 65.0f};
-        if (!feetPos.WorldToScreen(feet, ViewMatrix) || !headWorld.WorldToScreen(head, ViewMatrix))
+        const bool feetOnScreen = feetPos.WorldToScreen(feet, ViewMatrix);
+        const bool headOnScreen = headWorld.WorldToScreen(head, ViewMatrix);
+        const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+        const bool outsideViewport = feetOnScreen && headOnScreen &&
+            (std::max(feet.x, head.x) < 0.0f || std::min(feet.x, head.x) > displaySize.x ||
+                std::max(feet.y, head.y) < 0.0f || std::min(feet.y, head.y) > displaySize.y);
+
+        if (!feetOnScreen || !headOnScreen || outsideViewport)
+        {
+            if (globals::espConfig.alert360)
+            {
+                auto draw = ImGui::GetBackgroundDrawList();
+                Draw360Alert(draw, feetPos, ViewMatrix, TeamColor(team, enemy), distanceMeters);
+            }
             continue;
+        }
 
         if (!projectedBounds)
         {
@@ -637,6 +937,22 @@ void visuals::PlayerESP()
                 draw->AddText({x + width + 5.0f, y + height - textSize.y}, ImColor(255, 255, 255, 235), healthLabel);
             }
 
+            if (globals::espConfig.name || globals::espConfig.distance)
+            {
+                char infoLabel[192]{};
+                const char* name = playerName[0] ? playerName.data() : "Unknown";
+                if (globals::espConfig.name && globals::espConfig.distance)
+                    sprintf_s(infoLabel, "%s  [%.0fm]", name, distanceMeters);
+                else if (globals::espConfig.name)
+                    sprintf_s(infoLabel, "%s", name);
+                else
+                    sprintf_s(infoLabel, "[%.0fm]", distanceMeters);
+
+                const ImVec2 infoSize = ImGui::CalcTextSize(infoLabel);
+                draw->AddText({x + (width - infoSize.x) * 0.5f, y - infoSize.y - 3.0f},
+                    ImColor(255, 255, 255, 235), infoLabel);
+            }
+
             if (globals::espConfig.positionArrow)
             {
                 const ImVec2 arrowCenter{feet.x, feet.y + 8.0f};
@@ -648,18 +964,22 @@ void visuals::PlayerESP()
         }
     }
 
+    if (!globals::espConfig.spectatorList)
+        return;
+
     auto draw = ImGui::GetBackgroundDrawList();
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    const float panelWidth = 230.0f;
-    const float panelHeight = 34.0f + static_cast<float>(spectatorCount) * 22.0f;
-    const ImVec2 panelMin{displaySize.x - panelWidth - 18.0f, 18.0f};
+    const float panelWidth = 184.0f;
+    const float rowHeight = 18.0f;
+    const float panelHeight = 28.0f + static_cast<float>(spectatorCount) * rowHeight;
+    const ImVec2 panelMin{displaySize.x - panelWidth - 10.0f, 10.0f};
     const ImVec2 panelMax{panelMin.x + panelWidth, panelMin.y + panelHeight};
-    draw->AddRectFilled(panelMin, panelMax, ImColor(18, 18, 22, 215), 6.0f);
-    draw->AddRect(panelMin, panelMax, ImColor(100, 100, 110, 230), 6.0f, 0, 1.0f);
+    draw->AddRectFilled(panelMin, panelMax, ImColor(18, 18, 22, 225), 4.0f);
+    draw->AddRect(panelMin, panelMax, ImColor(92, 98, 112, 235), 4.0f, 0, 1.0f);
 
     char header[64]{};
     sprintf_s(header, "Spectators: %zu", spectatorCount);
-    draw->AddText({panelMin.x + 10.0f, panelMin.y + 8.0f},
+    draw->AddText({panelMin.x + 8.0f, panelMin.y + 6.0f},
         ImColor(255, 255, 255, 255), header);
 
     for (std::size_t index = 0; index < spectatorCount; ++index)
@@ -668,9 +988,13 @@ void visuals::PlayerESP()
         if (!name[0])
             name = "Unknown";
 
-        char line[180]{};
-        sprintf_s(line, "%s  [%s]", name, TeamName(spectators[index].team));
-        draw->AddText({panelMin.x + 10.0f, panelMin.y + 30.0f + static_cast<float>(index) * 22.0f},
-            ImColor(220, 220, 225, 255), line);
+        const ImVec2 rowPosition{panelMin.x + 8.0f,
+            panelMin.y + 25.0f + static_cast<float>(index) * rowHeight};
+        draw->AddText(rowPosition, ImColor(228, 228, 232, 255), name);
+        const ImVec2 nameSize = ImGui::CalcTextSize(name);
+        char teamLabel[8]{};
+        sprintf_s(teamLabel, "[%s]", TeamName(spectators[index].team));
+        draw->AddText({rowPosition.x + nameSize.x + 8.0f, rowPosition.y},
+            SpectatorTeamColor(spectators[index].team), teamLabel);
     }
 }

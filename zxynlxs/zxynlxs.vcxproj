@@ -166,6 +166,7 @@
     <ClCompile Include="src\kiero\minhook\src\hde\hde64.c" />
     <ClCompile Include="src\kiero\minhook\src\hook.c" />
     <ClCompile Include="src\kiero\minhook\src\trampoline.c" />
+    <ClCompile Include="src\aimbot\Aimbot.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\globals\globals.cpp" />
     <ClCompile Include="src\debug\debug.cpp" />
@@ -188,6 +189,7 @@
     <ClInclude Include="src\imgui\imstb_textedit.h" />
     <ClInclude Include="src\imgui\imstb_truetype.h" />
     <ClInclude Include="src\includes.h" />
+    <ClInclude Include="src\aimbot\Aimbot.h" />
     <ClInclude Include="src\kiero\kiero.h" />
     <ClInclude Include="src\kiero\minhook\include\MinHook.h" />
     <ClInclude Include="src\kiero\minhook\src\buffer.h" />
