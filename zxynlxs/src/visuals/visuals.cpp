@@ -229,8 +229,16 @@ namespace
     bool ReadValue(uintptr_t address, T& value, const char* stage)
     {
         (void)stage;
-        value = *reinterpret_cast<const T*>(address);
-        return true;
+        __try
+        {
+            value = *reinterpret_cast<const T*>(address);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            value = T{};
+            return false;
+        }
     }
 
     uintptr_t GetEntityByIndex(uintptr_t entityList, std::uint32_t index, const char* stage)
@@ -265,6 +273,34 @@ namespace
 
         return identity.entity;
     }
+
+    uintptr_t ResolveObserverTarget(uintptr_t pawn, uintptr_t entityList, const char* stage)
+    {
+        uintptr_t observerServices = 0;
+        std::uint32_t observerTarget = 0;
+        if (!ReadValue(pawn + offsets::m_pObserverServices,
+            observerServices, stage) || !observerServices ||
+            !ReadValue(observerServices + offsets::m_hObserverTarget,
+                observerTarget, stage) || observerTarget == 0xFFFFFFFFu)
+            return 0;
+
+        return GetEntityByIndex(entityList, observerTarget & 0x7FFFu, stage);
+    }
+
+    const char* TeamName(std::uint8_t team)
+    {
+        if (team == 2)
+            return "T";
+        if (team == 3)
+            return "CT";
+        return "?";
+    }
+
+    struct SpectatorEntry
+    {
+        std::array<char, 128> name{};
+        std::uint8_t team = 0;
+    };
 
     bool ReadBonePositions(uintptr_t pawn, std::array<Vec3, 128>& bones)
     {
@@ -319,6 +355,17 @@ void visuals::PlayerESP()
         return;
     }
 
+    // SIGNONSTATE_FULL (6): avoid touching entity data while loading or changing maps.
+    uintptr_t networkGameClient = 0;
+    std::int32_t signOnState = 0;
+    if (!ReadValue(engineModule + offsets::dwNetworkGameClient,
+        networkGameClient, "dwNetworkGameClient") || !networkGameClient ||
+        !ReadValue(networkGameClient + offsets::dwNetworkGameClient_signOnState,
+            signOnState, "networkGameClient.signOnState") || signOnState != 6)
+    {
+        return;
+    }
+
     auto viewMatrixAddress = FindWorldToProjectionMatrix(clientModule);
     if (!viewMatrixAddress)
         viewMatrixAddress = clientModule + offsets::dwViewMatrix;
@@ -340,6 +387,13 @@ void visuals::PlayerESP()
 
     if (!localPlayerPawn)
         return;
+
+    uint8_t localLifeState = 0;
+    if (!ReadValue(localPlayerPawn + offsets::m_lifeState,
+        localLifeState, "localPawn.m_lifeState"))
+        return;
+
+    const bool localIsDead = localLifeState != 0;
 
     uint8_t localTeam = 0;
     if (!ReadValue(localPlayerPawn + offsets::m_iTeamNum,
@@ -372,6 +426,14 @@ void visuals::PlayerESP()
 
     const auto entityList = entitySystem + entityListOffset;
 
+    uintptr_t spectatedPawn = 0;
+    if (localIsDead)
+        spectatedPawn = ResolveObserverTarget(
+            localPlayerPawn, entityList, "localPawn.observerTarget");
+
+    std::array<SpectatorEntry, 64> spectators{};
+    std::size_t spectatorCount = 0;
+
     for (int i = 1; i < 64; i++) {
         const auto playerController = GetEntityByIndex(
             entityList, static_cast<std::uint32_t>(i), "controller.identity");
@@ -390,12 +452,30 @@ void visuals::PlayerESP()
         if (!pCSPlayerPawnPointer)
             continue;
 
+        // When teammate ESP is enabled, keep the local pawn out of the entity pass.
+        if (!globals::espConfig.onlyEnemies && pCSPlayerPawnPointer == localPlayerPawn)
+            continue;
+
+        if (localIsDead && spectatedPawn && pCSPlayerPawnPointer == spectatedPawn)
+            continue;
+
         uint8_t lifeState = 0;
         if (!ReadValue(pCSPlayerPawnPointer + offsets::m_lifeState,
             lifeState, "pawn.m_lifeState"))
             continue;
         if (lifeState != 0)
+        {
+            if (spectatorCount < spectators.size() &&
+                ResolveObserverTarget(pCSPlayerPawnPointer, entityList, "spectator.observerTarget") == localPlayerPawn)
+            {
+                ReadValue(playerController + offsets::m_iszPlayerName,
+                    spectators[spectatorCount].name, "controller.m_iszPlayerName");
+                ReadValue(pCSPlayerPawnPointer + offsets::m_iTeamNum,
+                    spectators[spectatorCount].team, "spectator.pawn.m_iTeamNum");
+                ++spectatorCount;
+            }
             continue;
+        }
 
         int health = 0;
         if (!ReadValue(pCSPlayerPawnPointer + offsets::m_iHealth,
@@ -541,5 +621,31 @@ void visuals::PlayerESP()
             }
 
         }
+    }
+
+    auto draw = ImGui::GetBackgroundDrawList();
+    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    const float panelWidth = 230.0f;
+    const float panelHeight = 34.0f + static_cast<float>(spectatorCount) * 22.0f;
+    const ImVec2 panelMin{displaySize.x - panelWidth - 18.0f, 18.0f};
+    const ImVec2 panelMax{panelMin.x + panelWidth, panelMin.y + panelHeight};
+    draw->AddRectFilled(panelMin, panelMax, ImColor(18, 18, 22, 215), 6.0f);
+    draw->AddRect(panelMin, panelMax, ImColor(100, 100, 110, 230), 6.0f, 0, 1.0f);
+
+    char header[64]{};
+    sprintf_s(header, "Spectators: %zu", spectatorCount);
+    draw->AddText({panelMin.x + 10.0f, panelMin.y + 8.0f},
+        ImColor(255, 255, 255, 255), header);
+
+    for (std::size_t index = 0; index < spectatorCount; ++index)
+    {
+        const char* name = spectators[index].name.data();
+        if (!name[0])
+            name = "Unknown";
+
+        char line[180]{};
+        sprintf_s(line, "%s  [%s]", name, TeamName(spectators[index].team));
+        draw->AddText({panelMin.x + 10.0f, panelMin.y + 30.0f + static_cast<float>(index) * 22.0f},
+            ImColor(220, 220, 225, 255), line);
     }
 }

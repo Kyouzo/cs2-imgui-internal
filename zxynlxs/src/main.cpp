@@ -151,11 +151,59 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 	return oPresent(pSwapChain, SyncInterval, Flags);
 }
+inline void* pUpdateAccuracyPenality = nullptr;
+inline void* pGetSpread = nullptr;
+inline void* pGetInaccuracy = nullptr;
+
+void UpdateAccuracyPenality(void* weapon)
+{
+	using fn_update_accuracy_penality_t = void(__fastcall*)(void*);
+	const auto fn = reinterpret_cast<fn_update_accuracy_penality_t>(pUpdateAccuracyPenality);
+
+	if (fn && weapon)
+		fn(weapon);
+}
+
+float GetSpread(void* weapon)
+{
+	using fn_get_spread_t = float(__fastcall*)(void*);
+	const auto fn = reinterpret_cast<fn_get_spread_t>(pGetSpread);
+	return fn && weapon ? fn(weapon) : 0.0f;
+}
+
+float GetInaccuracy(void* weapon)
+{
+	float x = 0.0f;
+	float y = 0.0f;
+	using fn_get_inaccuracy_t = float(__fastcall*)(void*, float*, float*);
+	const auto fn = reinterpret_cast<fn_get_inaccuracy_t>(pGetInaccuracy);
+	return fn && weapon ? fn(weapon, &x, &y) : 0.0f;
+}
+
+bool minhooks()
+{
+	const auto clientModule = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
+	if (!clientModule)
+	{
+		debug::Log("[accuracy] client.dll is not loaded yet");
+		return false;
+	}
+
+	pUpdateAccuracyPenality = reinterpret_cast<void*>(clientModule + 0x829410);
+	pGetSpread = reinterpret_cast<void*>(clientModule + 0x80EB60);
+	pGetInaccuracy = reinterpret_cast<void*>(clientModule + 0x80D870);
+
+	debug::Log("[accuracy] UpdateAccuracyPenalty=%p GetSpread=%p GetInaccuracy=%p",
+		pUpdateAccuracyPenality, pGetSpread, pGetInaccuracy);
+	return true;
+}
 
 DWORD WINAPI MainThread(LPVOID lpReserved)
 {
 	debug::Initialize();
 	debug::Log("[init] starting D3D11 hook thread");
+	while (!minhooks())
+		Sleep(100);
 	bool init_hook = false;
 	do
 	{

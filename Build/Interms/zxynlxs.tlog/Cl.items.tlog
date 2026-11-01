@@ -1,0 +1,17 @@
+Z:\FMM\CS2\mgmas\zxynlxs\src\imgui\imgui.cpp;Z:\FMM\CS2\mgmas\Build\Interms\imgui.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\imgui\imgui_demo.cpp;Z:\FMM\CS2\mgmas\Build\Interms\imgui_demo.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\imgui\imgui_draw.cpp;Z:\FMM\CS2\mgmas\Build\Interms\imgui_draw.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\imgui\imgui_impl_dx11.cpp;Z:\FMM\CS2\mgmas\Build\Interms\imgui_impl_dx11.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\imgui\imgui_impl_win32.cpp;Z:\FMM\CS2\mgmas\Build\Interms\imgui_impl_win32.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\imgui\imgui_widgets.cpp;Z:\FMM\CS2\mgmas\Build\Interms\imgui_widgets.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\kiero\kiero.cpp;Z:\FMM\CS2\mgmas\Build\Interms\kiero.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\kiero\minhook\src\buffer.c;Z:\FMM\CS2\mgmas\Build\Interms\buffer.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\kiero\minhook\src\hde\hde32.c;Z:\FMM\CS2\mgmas\Build\Interms\hde32.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\kiero\minhook\src\hde\hde64.c;Z:\FMM\CS2\mgmas\Build\Interms\hde64.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\kiero\minhook\src\hook.c;Z:\FMM\CS2\mgmas\Build\Interms\hook.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\kiero\minhook\src\trampoline.c;Z:\FMM\CS2\mgmas\Build\Interms\trampoline.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\main.cpp;Z:\FMM\CS2\mgmas\Build\Interms\main.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\globals\globals.cpp;Z:\FMM\CS2\mgmas\Build\Interms\globals.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\debug\debug.cpp;Z:\FMM\CS2\mgmas\Build\Interms\debug.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\math\math.cpp;Z:\FMM\CS2\mgmas\Build\Interms\math.obj
+Z:\FMM\CS2\mgmas\zxynlxs\src\visuals\visuals.cpp;Z:\FMM\CS2\mgmas\Build\Interms\visuals.obj
