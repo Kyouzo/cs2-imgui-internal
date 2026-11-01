@@ -1,3 +1,6 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include "includes.h"
 #include "globals/globals.h"
 #include "visuals/visuals.h"
@@ -115,12 +118,9 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 		ImGui::Checkbox("Enemies only", &globals::espConfig.onlyEnemies);
 		if (ImGui::CollapsingHeader("Player position", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			ImGui::Checkbox("Box", &globals::espConfig.boxes);
 			ImGui::Checkbox("Cornered box", &globals::espConfig.cornerBox);
 			ImGui::Checkbox("Skeleton", &globals::espConfig.skeleton);
 			ImGui::Checkbox("Snapline", &globals::espConfig.snapline);
-			ImGui::Checkbox("Outline glow", &globals::espConfig.outlineGlow);
-			ImGui::Checkbox("Model glow", &globals::espConfig.modelGlow);
 			ImGui::Checkbox("Head marker", &globals::espConfig.headMarker);
 			ImGui::Checkbox("Position arrow", &globals::espConfig.positionArrow);
 			ImGui::Checkbox("Team colors", &globals::espConfig.teamColors);

@@ -7,12 +7,9 @@ namespace globals
     struct EspConfig
     {
         bool onlyEnemies = true;
-        bool boxes = true;
         bool cornerBox = true;
         bool skeleton = true;
         bool snapline = true;
-        bool outlineGlow = false;
-        bool modelGlow = false;
         bool healthBar = true;
         bool healthText = true;
         bool headMarker = true;

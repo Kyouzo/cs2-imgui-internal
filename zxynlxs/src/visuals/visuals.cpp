@@ -478,39 +478,17 @@ void visuals::PlayerESP()
 
             // Osiris-style in-world presentation: dark shadow, team-colored outline,
             // health information below the player and an optional position marker.
-            if (globals::espConfig.boxes)
+            if (globals::espConfig.cornerBox)
             {
-                draw->AddRect({x + 1.0f, y + 1.0f}, {x + width + 1.0f, y + height + 1.0f}, ImColor(0, 0, 0, 180), 0.0f, 0, 3.0f);
-                if (globals::espConfig.cornerBox)
-                {
-                    const float corner = std::min(10.0f, std::min(width, height) * 0.35f);
-                    draw->AddLine({x, y}, {x + corner, y}, color, 1.5f);
-                    draw->AddLine({x, y}, {x, y + corner}, color, 1.5f);
-                    draw->AddLine({x + width - corner, y}, {x + width, y}, color, 1.5f);
-                    draw->AddLine({x + width, y}, {x + width, y + corner}, color, 1.5f);
-                    draw->AddLine({x, y + height - corner}, {x, y + height}, color, 1.5f);
-                    draw->AddLine({x, y + height}, {x + corner, y + height}, color, 1.5f);
-                    draw->AddLine({x + width - corner, y + height}, {x + width, y + height}, color, 1.5f);
-                    draw->AddLine({x + width, y + height - corner}, {x + width, y + height}, color, 1.5f);
-                }
-                else
-                    draw->AddRect({x, y}, {x + width, y + height}, color, 0.0f, 0, 1.5f);
-            }
-
-            if (globals::espConfig.outlineGlow || globals::espConfig.modelGlow)
-            {
-                const int layers = globals::espConfig.modelGlow ? 5 : 3;
-                for (int layer = layers; layer > 0; --layer)
-                {
-                    const float spread = static_cast<float>(layer) * 2.0f;
-                    const int alpha = globals::espConfig.modelGlow ? 18 : 26;
-                    draw->AddRect({x - spread, y - spread},
-                        {x + width + spread, y + height + spread},
-                        ImColor((color >> IM_COL32_R_SHIFT) & 0xFF,
-                            (color >> IM_COL32_G_SHIFT) & 0xFF,
-                            (color >> IM_COL32_B_SHIFT) & 0xFF, alpha),
-                        0.0f, 0, 2.0f);
-                }
+                const float corner = std::min(10.0f, std::min(width, height) * 0.35f);
+                draw->AddLine({x, y}, {x + corner, y}, color, 1.5f);
+                draw->AddLine({x, y}, {x, y + corner}, color, 1.5f);
+                draw->AddLine({x + width - corner, y}, {x + width, y}, color, 1.5f);
+                draw->AddLine({x + width, y}, {x + width, y + corner}, color, 1.5f);
+                draw->AddLine({x, y + height - corner}, {x, y + height}, color, 1.5f);
+                draw->AddLine({x, y + height}, {x + corner, y + height}, color, 1.5f);
+                draw->AddLine({x + width - corner, y + height}, {x + width, y + height}, color, 1.5f);
+                draw->AddLine({x + width, y + height - corner}, {x + width, y + height}, color, 1.5f);
             }
 
             if (globals::espConfig.headMarker)
