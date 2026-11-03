@@ -6,14 +6,14 @@
 
 namespace offsets
 {
-	// Generated offsets verified against a2x/cs2-dumper main (2026-10-30).
+	// Generated offsets verified against a2x/cs2-dumper main (2026-11-03).
 	// https://github.com/a2x/cs2-dumper/tree/main/output
 
-	constexpr std::ptrdiff_t dwEntityList = 0x271EB08;
-	constexpr std::ptrdiff_t dwLocalPlayerController = 0x25413F8;
-	constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x25698C8;
-	constexpr std::ptrdiff_t dwViewAngles = 0x2580008;
-	constexpr std::ptrdiff_t dwViewMatrix = 0x256F1D0;
+	constexpr std::ptrdiff_t dwEntityList = 0x271EBA8;
+	constexpr std::ptrdiff_t dwLocalPlayerController = 0x2541538;
+	constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x2569948;
+	constexpr std::ptrdiff_t dwViewAngles = 0x2580098;
+	constexpr std::ptrdiff_t dwViewMatrix = 0x256F250;
 
 	constexpr std::ptrdiff_t m_hPlayerPawn = 0x92C; // CHandle<C_CSPlayerPawn>
 	constexpr std::ptrdiff_t m_hObserverPawn = 0x930; // CHandle<C_CSObserverPawn>
