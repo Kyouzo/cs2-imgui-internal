@@ -170,12 +170,36 @@ namespace SkinChangerBridge
         g_imagesInitialized = SkinImages::Initialize(device);
     }
 
-    static void RunAgentChangerSafe()
+    // SEH wrapper for inventory sync — no C++ objects with destructors in this scope.
+    static void SyncInventorySafe()
     {
-        __try { SkinChanger::RunAgentChanger(); }
+        __try { SyncInventory(); }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            debug::Log("[skin] RunAgentChanger crashed — agent pattern likely stale for this build");
+            g_invInited = false; // stop future syncs rather than crash on every timer tick
+            debug::Log("[inv] SyncInventory crashed — inventory sync disabled until DLL reload");
+        }
+    }
+
+    // All game-entity reads go through here.  During a map change or game end the engine
+    // may tear down entity memory while our render hook still fires with a stale pawn
+    // address.  Wrapping every dereference in one SEH block (no C++ objects with
+    // destructors in *this* function's scope — the MSVC requirement for __try/__except)
+    // catches the access violation and lets the next tick recover cleanly.
+    static void RunSkinChangerSafe(uintptr_t pawnAddr)
+    {
+        __try
+        {
+            g_ctx->local_pawn = reinterpret_cast<C_CSPlayerPawn*>(pawnAddr);
+            SkinChanger::UpdateLiveInfo(g_ctx->local_pawn);
+            SkinChanger::Run();
+            SkinChanger::RunAgentChanger();
+            SkinChanger::ProcessPendingKeychains();
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            g_ctx->local_pawn = nullptr;
+            debug::Log("[skin] tick crashed (map change / game end) — pawn reset, will retry");
         }
     }
 
@@ -186,8 +210,6 @@ namespace SkinChangerBridge
 
         if (!g_initialized || !g_enabled)
             return;
-
-        g_ctx->local_pawn = reinterpret_cast<C_CSPlayerPawn*>(localPawnAddr);
 
         Config::skins.enabled = true;
 
@@ -200,16 +222,13 @@ namespace SkinChangerBridge
         Config::PublishSkins();
         Config::SyncGameSkins();
 
-        SkinChanger::UpdateLiveInfo(g_ctx->local_pawn);
-        SkinChanger::Run();
-        RunAgentChangerSafe();
-        SkinChanger::ProcessPendingKeychains();
+        RunSkinChangerSafe(localPawnAddr);
 
         // Sync inventory every ~5 s so skins appear in the inventory panel too.
         if (++s_invSyncTimer >= 300)
         {
             s_invSyncTimer = 0;
-            SyncInventory();
+            SyncInventorySafe();
         }
     }
 
