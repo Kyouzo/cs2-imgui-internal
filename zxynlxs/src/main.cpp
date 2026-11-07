@@ -6,6 +6,7 @@
 #include "visuals/visuals.h"
 #include "aimbot/Aimbot.h"
 #include "debug/debug.h"
+#include "skinchanger_bridge.h"
 #include "kiero/minhook/include/MinHook.h"
 #include <algorithm>
 #include <atomic>
@@ -200,6 +201,23 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 		return result;
 	}
 
+	// Retry image init every frame until g_initialized is true (Init() runs on a background thread).
+	SkinChangerBridge::InitImages(pDevice);
+
+	// Resolve local pawn for skinchanger (mirrors visuals.cpp offset path)
+	uintptr_t skinLocalPawn = 0;
+	if (SkinChangerBridge::g_initialized && SkinChangerBridge::g_enabled)
+	{
+		static uintptr_t clientMod = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
+		__try
+		{
+			constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x256A948;
+			skinLocalPawn = *reinterpret_cast<const uintptr_t*>(clientMod + dwLocalPlayerPawn);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {}
+		SkinChangerBridge::Tick(skinLocalPawn);
+	}
+
 	ImGui_ImplDX11_NewFrame();
 	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
@@ -357,6 +375,11 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 				ImGui::TextDisabled("Escape cancels key binding.");
 				ImGui::EndTabItem();
 			}
+			if (ImGui::BeginTabItem("Skins"))
+			{
+				SkinChangerBridge::RenderSkinsTab();
+				ImGui::EndTabItem();
+			}
 			ImGui::EndTabBar();
 		}
 		if (previousEsp != globals::esp)
@@ -450,6 +473,7 @@ DWORD WINAPI MainThread(LPVOID lpReserved)
 		{
 			kiero::bind(8, (void**)& oPresent, hkPresent);
 			debug::Log("[init] D3D11 Present hook installed");
+			SkinChangerBridge::Init();
 			init_hook = true;
 		}
 	} while (!init_hook);

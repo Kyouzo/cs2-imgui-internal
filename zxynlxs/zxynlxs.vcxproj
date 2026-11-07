@@ -70,23 +70,23 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <LibraryPath>C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Lib\x86;$(LibraryPath)</LibraryPath>
-    <IncludePath>C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(LibraryPath);C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Lib\x86</LibraryPath>
+    <IncludePath>$(IncludePath);C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Include</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <LibraryPath>C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Lib\x86;$(LibraryPath)</LibraryPath>
-    <IncludePath>C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(LibraryPath);C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Lib\x86</LibraryPath>
+    <IncludePath>$(IncludePath);C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Include</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LibraryPath>C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Lib\x64;$(LibraryPath)</LibraryPath>
-    <IncludePath>C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(LibraryPath);C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Lib\x64</LibraryPath>
+    <IncludePath>$(IncludePath);C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Include</IncludePath>
     <OutDir>$(SolutionDir)Build\</OutDir>
     <IntDir>$(SolutionDir)Build\Interms\</IntDir>
     <TargetName>CS2</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LibraryPath>C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Lib\x64;$(LibraryPath)</LibraryPath>
-    <IncludePath>C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(LibraryPath);C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Lib\x64</LibraryPath>
+    <IncludePath>$(IncludePath);C:\Program Files %28x86%29\Microsoft DirectX SDK %28June 2010%29\Include</IncludePath>
     <OutDir>$(SolutionDir)Build\</OutDir>
     <IntDir>$(SolutionDir)Build\Interms\</IntDir>
     <TargetName>CS2</TargetName>
@@ -112,6 +112,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PreprocessorDefinitions>_AMD64_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)src\skinchanger;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -145,6 +146,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PreprocessorDefinitions>_AMD64_;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)src\skinchanger;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -172,12 +174,37 @@
     <ClCompile Include="src\debug\debug.cpp" />
     <ClCompile Include="src\math\math.cpp" />
     <ClCompile Include="src\visuals\visuals.cpp" />
+    <ClCompile Include="src\skinchanger_bridge.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\menu\skinchanger\images\skin_images.cpp" />
+    <!-- Skinchanger subsystem -->
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\agent_voice_changer.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\agent_voice_rules.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\econ_item_attribute_manager.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\glove_changer.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\item_schema.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\knife_animation.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\knife_model_changer.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\music_kit_changer.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\randomizer.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\skin_application.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\skinchanger.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\stattrak_tracker.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\weapon_cosmetics.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\interfaces\interfaces.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\utils\memory\patternscan\patternscan.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\utils\offsets\offsets.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\utils\schema\schema.cpp" />
+    <ClCompile Include="src\skinchanger\cs2\datatypes\cutlbuffer\cutlbuffer.cpp" />
+    <ClCompile Include="src\skinchanger\cs2\datatypes\schema\ISchemaClass\ISchemaClass.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\kiero\minhook\dll_resources\MinHook.def" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\kiero\minhook\dll_resources\MinHook.rc" />
+    <ResourceCompile Include="src\skinchanger\chadware2\utils\offsets\offsets.rc">
+      <AdditionalIncludeDirectories>$(ProjectDir)src\skinchanger\chadware2\utils\offsets;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\imgui\imconfig.h" />
@@ -203,7 +230,66 @@
     <ClInclude Include="src\debug\debug.h" />
     <ClInclude Include="src\sdk\entity_system.h" />
     <ClInclude Include="src\math\math.h" />
+    <ClInclude Include="src\skinchanger\chadware2\menu\skinchanger\images\skin_images.h" />
+    <ClInclude Include="src\skinchanger\chadware2\config\config.h" />
+    <ClInclude Include="src\skinchanger\chadware2\config\configmanager.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\agent_voice_changer.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\agent_voice_rules.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\econ_item_attribute_manager.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\glove_changer.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\item_schema.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\knife_animation.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\knife_model_changer.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\music_kit_changer.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\randomizer.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\skinchanger.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\skin_application.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\stattrak_tracker.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\sticker_placement.h" />
+    <ClInclude Include="src\skinchanger\chadware2\features\skinchanger\weapon_cosmetics.h" />
+    <ClInclude Include="src\skinchanger\chadware2\globals\globals.h" />
+    <ClInclude Include="src\skinchanger\chadware2\interfaces\CEconItemSystem\CEconItemSystem.h" />
+    <ClInclude Include="src\skinchanger\chadware2\interfaces\CGameEntitySystem\CGameEntitySystem.h" />
+    <ClInclude Include="src\skinchanger\chadware2\interfaces\IEngineClient\IEngineClient.h" />
+    <ClInclude Include="src\skinchanger\chadware2\interfaces\IFileSystem\IFileSystem.h" />
+    <ClInclude Include="src\skinchanger\chadware2\interfaces\ILocalize\ILocalize.h" />
+    <ClInclude Include="src\skinchanger\chadware2\interfaces\interfaces.h" />
+    <ClInclude Include="src\skinchanger\chadware2\interfaces\IResponseSystem\IResponseSystem.h" />
+    <ClInclude Include="src\skinchanger\chadware2\interfaces\ISoundOpSystem\ISoundOpSystem.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\fnv1a\fnv1a.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\math\utlvector\utlvector.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\math\vector\vector.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\memory\Interface\Interface.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\memory\memorycommon.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\memory\patternscan\patternscan.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\memory\rtti\rtti.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\memory\vfunc\vfunc.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\offsets\offsets.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\offsets\offsets_resource.h" />
+    <ClInclude Include="src\skinchanger\chadware2\utils\schema\schema.h" />
+    <ClInclude Include="src\skinchanger\cs2\datatypes\cutlbuffer\cutlbuffer.h" />
+    <ClInclude Include="src\skinchanger\cs2\datatypes\radio_message.h" />
+    <ClInclude Include="src\skinchanger\cs2\datatypes\response_rules.h" />
+    <ClInclude Include="src\skinchanger\cs2\datatypes\schema\ISchemaClass\ISchemaClass.h" />
+    <ClInclude Include="src\skinchanger\cs2\datatypes\utlstronghandle\utlstronghandle.h" />
+    <ClInclude Include="src\skinchanger\cs2\datatypes\weapon_graph.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\CCompositeMaterialOwner\CCompositeMaterialOwner.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_BaseAnimGraph\C_BaseAnimGraph.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_BaseEntity\C_BaseEntity.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_BaseGrenade\C_BaseGrenade.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_CS2HudModelWeapon\C_CS2HudModelWeapon.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_CSPlayerPawn\C_CSPlayerPawn.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_CSWeaponBase\C_CSWeaponBase.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_EconEntity\C_EconEntity.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_EntityInstance\C_EntityInstance.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\C_WeaponVData\C_WeaponVData.h" />
+    <ClInclude Include="src\skinchanger\cs2\entity\handle.h" />
+    <ClInclude Include="src\skinchanger\cs2\hud\HudWeaponSelection.h" />
+    <ClInclude Include="src\skinchanger\cs2\panorama\preview_layouts.h" />
+    <ClInclude Include="src\skinchanger\includes.h" />
+    <ClInclude Include="src\skinchanger\patterns.h" />
     <ClInclude Include="src\visuals\visuals.h" />
+    <ClInclude Include="src\skinchanger_bridge.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
