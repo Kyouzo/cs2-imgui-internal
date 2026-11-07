@@ -10,6 +10,7 @@
 #include "chadware2/config/config.h"
 #include "chadware2/config/configmanager.h"
 #include "cs2/entity/C_CSPlayerPawn/C_CSPlayerPawn.h"
+#include "chadware2/features/unboxer/game_inventory.h"
 
 #include "imgui/imgui.h"
 #include "chadware2/menu/skinchanger/images/skin_images.h"
@@ -24,11 +25,104 @@
 
 namespace SkinChangerBridge
 {
-    bool g_enabled     = true;
-    bool g_initialized = false;
+    bool g_enabled        = true;
+    bool g_initialized    = false;
+    bool g_applyBothTeams = false;
     static bool g_imagesInitialized = false;
+    static bool g_invInited         = false;
 
     static Schema g_schema;
+
+    // ── Inventory state ──────────────────────────────────────────────────────────
+    struct InvEntry
+    {
+        int   paintKit  = 0;
+        int   seed      = 0;
+        float wear      = 0.0f;
+        bool  statTrak  = false;
+    };
+    static std::unordered_map<std::uint64_t, InvEntry> s_invItems;
+    static int s_invSyncTimer = 0;
+
+    // Build a deterministic fake item ID from (team, defIdx).
+    static constexpr std::uint64_t FakeItemId(int team, std::uint16_t defIdx)
+    {
+        return 0xF000000000000000ULL | (static_cast<std::uint64_t>(team & 0xF) << 48) | defIdx;
+    }
+
+    // Sync one weapon map's entries into the game inventory.
+    static void SyncMap(int team,
+                        const char* teamStr,
+                        const std::unordered_map<std::uint16_t, Config::item_skin_t>& weapons)
+    {
+        for (const auto& [defIdx, skin] : weapons)
+        {
+            const std::uint64_t fakeId = FakeItemId(team, defIdx);
+
+            // If disabled or no paint kit, remove any existing fake item.
+            if (!skin.enabled || skin.paintKit == 0)
+            {
+                if (s_invItems.count(fakeId))
+                {
+                    GameInv::RemoveItem(fakeId);
+                    s_invItems.erase(fakeId);
+                }
+                continue;
+            }
+
+            InvEntry cur{ skin.paintKit, skin.seed, skin.wear, skin.statTrakEnabled };
+
+            auto it = s_invItems.find(fakeId);
+            if (it != s_invItems.end())
+            {
+                // Already in inventory — skip if unchanged.
+                if (it->second.paintKit == cur.paintKit &&
+                    it->second.seed     == cur.seed     &&
+                    it->second.wear     == cur.wear     &&
+                    it->second.statTrak == cur.statTrak)
+                    continue;
+
+                GameInv::RemoveItem(fakeId);
+                s_invItems.erase(fakeId);
+            }
+
+            GameInv::NewItem item;
+            item.id         = fakeId;
+            item.definition = defIdx;
+            item.quality    = skin.statTrakEnabled ? 9 : 4;
+            item.rarity     = 4;
+            item.paintKit   = skin.paintKit;
+            item.seed       = skin.seed;
+            item.wear       = skin.wear;
+            item.statTrak   = skin.statTrakEnabled;
+            item.statTrakKills = skin.statTrakKills;
+            item.customName = skin.customName;
+
+            if (GameInv::CreateItem(item))
+            {
+                s_invItems[fakeId] = cur;
+                std::string slot = GameInv::DefaultSlot(fakeId);
+                if (!slot.empty())
+                    GameInv::LoadoutEquip(teamStr, fakeId, slot.c_str());
+            }
+        }
+    }
+
+    // Called from Tick() periodically; updates the game inventory to match the skin config.
+    static void SyncInventory()
+    {
+        if (!g_invInited || !GameInv::InventoryReady())
+            return;
+
+        for (int team = 0; team <= 1; ++team)
+        {
+            const char* teamStr = (team == Config::TEAM_CT) ? "ct" : "t";
+            const auto& loadout = Config::skins.loadouts[team];
+            SyncMap(team, teamStr, loadout.weapons);
+            SyncMap(team, teamStr, loadout.knives);
+            SyncMap(team, teamStr, loadout.gloves);
+        }
+    }
 
     bool Init()
     {
@@ -55,6 +149,17 @@ namespace SkinChangerBridge
 
         g_initialized = true;
         debug::Log("[skin] ready");
+
+        if (GameInv::Initialize())
+        {
+            g_invInited = true;
+            debug::Log("[inv] GameInv ready");
+        }
+        else
+        {
+            debug::Log("[inv] GameInv init failed: %s", GameInv::LastError());
+        }
+
         return true;
     }
 
@@ -63,6 +168,15 @@ namespace SkinChangerBridge
         if (!g_initialized || g_imagesInitialized || !device)
             return;
         g_imagesInitialized = SkinImages::Initialize(device);
+    }
+
+    static void RunAgentChangerSafe()
+    {
+        __try { SkinChanger::RunAgentChanger(); }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            debug::Log("[skin] RunAgentChanger crashed — agent pattern likely stale for this build");
+        }
     }
 
     void Tick(uintptr_t localPawnAddr)
@@ -76,13 +190,27 @@ namespace SkinChangerBridge
         g_ctx->local_pawn = reinterpret_cast<C_CSPlayerPawn*>(localPawnAddr);
 
         Config::skins.enabled = true;
+
+        if (g_applyBothTeams)
+        {
+            const int other = (Config::editTeam == Config::TEAM_CT) ? Config::TEAM_T : Config::TEAM_CT;
+            Config::skins.loadouts[other].weapons = Config::skins.loadouts[Config::editTeam].weapons;
+        }
+
         Config::PublishSkins();
         Config::SyncGameSkins();
 
         SkinChanger::UpdateLiveInfo(g_ctx->local_pawn);
         SkinChanger::Run();
-        SkinChanger::RunAgentChanger();
+        RunAgentChangerSafe();
         SkinChanger::ProcessPendingKeychains();
+
+        // Sync inventory every ~5 s so skins appear in the inventory panel too.
+        if (++s_invSyncTimer >= 300)
+        {
+            s_invSyncTimer = 0;
+            SyncInventory();
+        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────
@@ -318,7 +446,9 @@ namespace SkinChangerBridge
             Config::skins.enabled = g_enabled;
 
         ImGui::SameLine(0.0f, 16.0f);
-        ImGui::Text("Team:");
+        ImGui::Checkbox("Both Teams##bothteams", &g_applyBothTeams);
+        ImGui::SameLine(0.0f, 16.0f);
+        ImGui::Text("Side:");
         ImGui::SameLine();
         if (ImGui::RadioButton("T##team", Config::editTeam == Config::TEAM_T))
             Config::editTeam = Config::TEAM_T;

@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Z:\\Projects\\cs2internal\\Build\\Interms\\offsets.obj",
+            "outputs": [
+                "Z:\\Projects\\cs2internal\\Build\\Interms\\offsets.cpp.obj.dt.module.json",
+                "Z:\\Projects\\cs2internal\\Build\\Interms\\offsets.cpp.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}

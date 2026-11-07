@@ -185,6 +185,7 @@
     <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\knife_animation.cpp" />
     <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\knife_model_changer.cpp" />
     <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\music_kit_changer.cpp" />
+    <ClCompile Include="src\skinchanger\chadware2\features\unboxer\game_inventory.cpp" />
     <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\randomizer.cpp" />
     <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\skin_application.cpp" />
     <ClCompile Include="src\skinchanger\chadware2\features\skinchanger\skinchanger.cpp" />
