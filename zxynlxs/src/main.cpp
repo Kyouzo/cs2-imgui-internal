@@ -309,12 +309,29 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 			if (ImGui::BeginTabItem("Aim"))
 			{
 				static bool captureAimKey = false;
+				ImGui::Columns(2, "aim_columns", false);
 				ImGui::Checkbox("Enable aim assist", &globals::aimConfig.enabled);
-				ImGui::Checkbox("Visible check (spotted)", &globals::aimConfig.visCheck);
+				ImGui::Checkbox("Visible check", &globals::aimConfig.visCheck);
+				ImGui::Checkbox("Smoke check", &globals::aimConfig.smokeCheck);
 				ImGui::Checkbox("Show FOV circle", &globals::aimConfig.showFov);
 				ImGui::Checkbox("Hold bind to aim", &globals::aimConfig.requireKey);
 				ImGui::Checkbox("Enemies only", &globals::aimConfig.enemiesOnly);
+				ImGui::NextColumn();
+				ImGui::Checkbox("RCS", &globals::aimConfig.rcs);
+				ImGui::Checkbox("Flash check", &globals::aimConfig.flashCheck);
+				ImGui::Checkbox("Tight FOV when scoped", &globals::aimConfig.scopedFov);
+				ImGui::Checkbox("Humanize", &globals::aimConfig.humanize);
+				ImGui::Columns(1);
+				ImGui::Separator();
 				ImGui::Combo("Target bone", &globals::aimConfig.targetBone, "Head\0Neck\0Chest\0Torso\0");
+				ImGui::Combo("Smooth mode", &globals::aimConfig.smoothMode, "Linear\0Exponential\0");
+				ImGui::SliderFloat("FOV", &globals::aimConfig.fov, 0.5f, 30.0f, "%.1f deg");
+				ImGui::SliderFloat("Smoothing", &globals::aimConfig.smoothing, 1.0f, 20.0f, "%.1f");
+				if (globals::aimConfig.rcs)
+					ImGui::SliderFloat("RCS scale", &globals::aimConfig.rcsScale, 0.0f, 2.0f, "%.2f");
+				if (globals::aimConfig.humanize)
+					ImGui::SliderFloat("Humanize scale", &globals::aimConfig.humanizeScale, 0.1f, 3.0f, "%.1f");
+				ImGui::Separator();
 				ImGui::Text("Aim key: %s", AimKeyName(globals::aimConfig.aimKey));
 				if (ImGui::Button(captureAimKey ? "Press a key or mouse button..." : "Bind aim key"))
 					captureAimKey = true;
@@ -337,8 +354,6 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 						}
 					}
 				}
-				ImGui::SliderFloat("FOV", &globals::aimConfig.fov, 0.5f, 30.0f, "%.1f deg");
-				ImGui::SliderFloat("Smoothing", &globals::aimConfig.smoothing, 1.0f, 20.0f, "%.1f");
 				ImGui::TextDisabled("Escape cancels key binding.");
 				ImGui::EndTabItem();
 			}

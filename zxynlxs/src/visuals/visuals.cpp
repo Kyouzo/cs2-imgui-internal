@@ -551,6 +551,14 @@ bool visuals::FindBestAimPoint(const Vec3& currentView, Vec3& targetAngles,
         if (!pawn || pawn == localPawn)
             continue;
 
+        bool dormant = false;
+        if (ReadValue(pawn + offsets::m_bDormant, dormant, "aim.dormant") && dormant)
+            continue;
+
+        bool gunGameImmune = false;
+        if (ReadValue(pawn + offsets::m_bGunGameImmunity, gunGameImmune, "aim.gunGameImmune") && gunGameImmune)
+            continue;
+
         uint8_t targetLifeState = 0;
         uint8_t targetTeam = 0;
         int health = 0;
@@ -563,9 +571,9 @@ bool visuals::FindBestAimPoint(const Vec3& currentView, Vec3& targetAngles,
         if (enemiesOnly && targetTeam == localTeam)
             continue;
 
-        // Vischeck: skip enemies not currently spotted (not visible through walls).
-        // Uses EntitySpottedState_t::m_bSpotted — set when any teammate has line-of-sight.
-        if (globals::aimConfig.visCheck)
+        // visCheck: skip unspotted enemies (any teammate has LoS — implicitly blocks smokes/walls).
+        // smokeCheck: same mechanism but as a dedicated toggle for smoke/wall filter.
+        if (globals::aimConfig.visCheck || globals::aimConfig.smokeCheck)
         {
             bool spotted = false;
             if (!ReadValue(pawn + offsets::m_entitySpottedState + offsets::m_bSpotted,
