@@ -310,6 +310,7 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 			{
 				static bool captureAimKey = false;
 				ImGui::Checkbox("Enable aim assist", &globals::aimConfig.enabled);
+				ImGui::Checkbox("Visible check (spotted)", &globals::aimConfig.visCheck);
 				ImGui::Checkbox("Show FOV circle", &globals::aimConfig.showFov);
 				ImGui::Checkbox("Hold bind to aim", &globals::aimConfig.requireKey);
 				ImGui::Checkbox("Enemies only", &globals::aimConfig.enemiesOnly);

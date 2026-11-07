@@ -3,10 +3,10 @@
     "revision": 0,
     "rules": [
         {
-            "primary-output": "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\visuals.obj",
+            "primary-output": "Z:\\Projects\\cs2internal\\Build\\Interms\\visuals.obj",
             "outputs": [
-                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\visuals.cpp.obj.dt.module.json",
-                "Z:\\FMM\\CS2\\mgmas\\Build\\Interms\\visuals.cpp.obj.dt.d.json"
+                "Z:\\Projects\\cs2internal\\Build\\Interms\\visuals.cpp.obj.dt.module.json",
+                "Z:\\Projects\\cs2internal\\Build\\Interms\\visuals.cpp.obj.dt.d.json"
             ],
             "requires": []
         }

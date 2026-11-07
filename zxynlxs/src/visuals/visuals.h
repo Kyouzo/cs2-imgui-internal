@@ -9,11 +9,11 @@ namespace offsets
 	// Generated offsets verified against a2x/cs2-dumper main (2026-11-03).
 	// https://github.com/a2x/cs2-dumper/tree/main/output
 
-	constexpr std::ptrdiff_t dwEntityList = 0x271EBA8;
-	constexpr std::ptrdiff_t dwLocalPlayerController = 0x2541538;
-	constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x2569948;
-	constexpr std::ptrdiff_t dwViewAngles = 0x2580098;
-	constexpr std::ptrdiff_t dwViewMatrix = 0x256F250;
+	constexpr std::ptrdiff_t dwEntityList = 0x271FBB8;
+	constexpr std::ptrdiff_t dwLocalPlayerController = 0x2542548;
+	constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x256A948;
+	constexpr std::ptrdiff_t dwViewAngles = 0x2581098;
+	constexpr std::ptrdiff_t dwViewMatrix = 0x2570250;
 
 	constexpr std::ptrdiff_t m_hPlayerPawn = 0x92C; // CHandle<C_CSPlayerPawn>
 	constexpr std::ptrdiff_t m_hObserverPawn = 0x930; // CHandle<C_CSObserverPawn>
@@ -30,6 +30,11 @@ namespace offsets
 	constexpr std::ptrdiff_t m_modelState = 0x140; // CSkeletonInstance::m_modelState
 	constexpr std::ptrdiff_t m_boneCache = 0x80; // CModelState bone cache pointer
 
+	// EntitySpottedState_t (C_CSPlayerPawn, 2026-11-05 dump)
+	constexpr std::ptrdiff_t m_entitySpottedState = 0x1E88; // EntitySpottedState_t
+	constexpr std::ptrdiff_t m_bSpotted            = 0x08;  // bool, within EntitySpottedState_t
+
+	constexpr std::ptrdiff_t dwCSGOInput    = 0x2580A10; // CCSGOInput* pointer
 
 	constexpr std::ptrdiff_t dwWindowHeight = 0x9BCFEC;
 	constexpr std::ptrdiff_t dwWindowWidth = 0x9BCFE8;

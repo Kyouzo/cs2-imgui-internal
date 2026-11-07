@@ -563,6 +563,16 @@ bool visuals::FindBestAimPoint(const Vec3& currentView, Vec3& targetAngles,
         if (enemiesOnly && targetTeam == localTeam)
             continue;
 
+        // Vischeck: skip enemies not currently spotted (not visible through walls).
+        // Uses EntitySpottedState_t::m_bSpotted — set when any teammate has line-of-sight.
+        if (globals::aimConfig.visCheck)
+        {
+            bool spotted = false;
+            if (!ReadValue(pawn + offsets::m_entitySpottedState + offsets::m_bSpotted,
+                spotted, "aim.spotted") || !spotted)
+                continue;
+        }
+
         // Shared player rig: head=7, neck=6, chest=23, spine2/torso=4.
         const std::size_t boneIndex = targetBone == 0 ? 7u :
             (targetBone == 1 ? 6u : (targetBone == 2 ? 23u : 4u));

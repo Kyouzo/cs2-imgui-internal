@@ -7,6 +7,7 @@ namespace globals
     struct AimConfig
     {
         bool enabled = false;
+        bool visCheck = true;
         bool showFov = true;
         bool enemiesOnly = true;
         bool requireKey = true;
