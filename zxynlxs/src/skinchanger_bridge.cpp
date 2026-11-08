@@ -14,8 +14,12 @@
 
 #include "imgui/imgui.h"
 #include "chadware2/menu/skinchanger/images/skin_images.h"
+#include "chadware2/utils/memory/patternscan/patternscan.h"
+#include "skinchanger/patterns.h"
 
+#include <Windows.h>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -42,7 +46,11 @@ namespace SkinChangerBridge
         bool  statTrak  = false;
     };
     static std::unordered_map<std::uint64_t, InvEntry> s_invItems;
-    static int s_invSyncTimer = 0;
+
+    // Inventory writes allowed per pass.  Enabling with a big config loaded used to create every
+    // item (all weapons x both teams) inside one frame; now it is spread over several passes.
+    static int  s_invBudget  = 0;
+    static bool s_invPending = false;
 
     // Build a deterministic fake item ID from (team, defIdx).
     static constexpr std::uint64_t FakeItemId(int team, std::uint16_t defIdx)
@@ -64,6 +72,8 @@ namespace SkinChangerBridge
             {
                 if (s_invItems.count(fakeId))
                 {
+                    if (s_invBudget <= 0) { s_invPending = true; continue; }
+                    --s_invBudget;
                     GameInv::RemoveItem(fakeId);
                     s_invItems.erase(fakeId);
                 }
@@ -82,8 +92,15 @@ namespace SkinChangerBridge
                     it->second.statTrak == cur.statTrak)
                     continue;
 
+                if (s_invBudget <= 0) { s_invPending = true; continue; }
+                --s_invBudget;
                 GameInv::RemoveItem(fakeId);
                 s_invItems.erase(fakeId);
+            }
+            else
+            {
+                if (s_invBudget <= 0) { s_invPending = true; continue; }
+                --s_invBudget;
             }
 
             GameInv::NewItem item;
@@ -108,7 +125,22 @@ namespace SkinChangerBridge
         }
     }
 
-    // Called from Tick() periodically; updates the game inventory to match the skin config.
+    // Remove every fake item we put in the inventory (skinchanger switched off).
+    static void RemoveAllFakeItems()
+    {
+        if (!g_invInited || !GameInv::InventoryReady())
+            return;
+
+        for (auto it = s_invItems.begin(); it != s_invItems.end();)
+        {
+            if (s_invBudget <= 0) { s_invPending = true; return; }
+            --s_invBudget;
+            GameInv::RemoveItem(it->first);
+            it = s_invItems.erase(it);
+        }
+    }
+
+    // Game thread, every few seconds; updates the game inventory to match the skin config.
     static void SyncInventory()
     {
         if (!g_invInited || !GameInv::InventoryReady())
@@ -117,10 +149,268 @@ namespace SkinChangerBridge
         for (int team = 0; team <= 1; ++team)
         {
             const char* teamStr = (team == Config::TEAM_CT) ? "ct" : "t";
-            const auto& loadout = Config::skins.loadouts[team];
+            const auto& loadout = Config::Game().loadouts[team];   // game thread: the published copy, not the menu's
             SyncMap(team, teamStr, loadout.weapons);
             SyncMap(team, teamStr, loadout.knives);
             SyncMap(team, teamStr, loadout.gloves);
+        }
+    }
+
+    // ── Game-thread driver ───────────────────────────────────────────────────────────────
+    // Everything that touches entities, the inventory or game functions must run on the GAME thread
+    // (the skinchanger was written for FrameStageNotify / FRAME_NET_UPDATE_END).  It used to run from
+    // hkPresent on the render thread, so it raced entity teardown on map change and the game's own
+    // update when toggled mid-match.  We now route it through FrameStageNotify by shadowing the
+    // Source2Client vtable (heap copy - no code bytes patched, same trick as the swap chain).
+    constexpr int FRAME_NET_UPDATE_END = 7;   // same value knife_animation.cpp uses
+
+    using FrameStageNotifyFn = void(__fastcall*)(void*, int);
+
+    static FrameStageNotifyFn s_origFrameStage = nullptr;
+    static void**             s_shadowVtbl     = nullptr;
+    static void**             s_realVtbl       = nullptr;
+    static void*              s_hookedClient   = nullptr;
+    static std::atomic_bool   s_frameHooked{ false };
+    static std::atomic_bool   s_shuttingDown{ false };
+    static std::atomic_uint   s_frameActive{ 0 };
+
+    // Game-thread-only state.
+    static bool        s_inSession     = false;   // we saw the engine in a match
+    static bool        s_prevEnabled   = false;
+    static const void* s_entitySystem  = nullptr; // a new entity system = new map
+    static ULONGLONG   s_settleUntilMs = 0;       // don't touch entities until the world has settled
+    static ULONGLONG   s_pauseUntilMs  = 0;       // circuit breaker after a fault
+    static ULONGLONG   s_nextInvSyncMs = 0;
+    static int         s_faultStreak   = 0;
+
+    constexpr ULONGLONG kSessionSettleMs = 1500;  // after (re)joining a map
+    constexpr ULONGLONG kEnableSettleMs  = 400;   // after switching the changer on mid-match
+
+    static void ResetWorldState(const char* why)
+    {
+        SkinChanger::Reset();   // every cache is keyed by weapon address / pawn: all of it is stale now
+        g_ctx->local_pawn = nullptr;
+        debug::Log("[skin] state reset: %s", why);
+    }
+
+    // SEH wrappers - no C++ objects with destructors in these scopes (MSVC requirement).
+    static void SyncInventorySafe(bool removeAll)
+    {
+        __try
+        {
+            s_invBudget  = 6;
+            s_invPending = false;
+            if (removeAll) RemoveAllFakeItems();
+            else           SyncInventory();
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            g_invInited = false; // stop future syncs rather than crash on every pass
+            debug::Log("[inv] inventory sync crashed - disabled until DLL reload");
+        }
+    }
+
+    static void InventoryFrame(ULONGLONG now, bool enabled)
+    {
+        if (!g_invInited || now < s_nextInvSyncMs)
+            return;
+
+        if (!enabled && s_invItems.empty())
+            return;
+
+        s_nextInvSyncMs = now + 5000;
+        SyncInventorySafe(!enabled);
+
+        if (s_invPending)               // budget ran out: continue soon
+            s_nextInvSyncMs = now + 500;
+    }
+
+    static void GameFrame()
+    {
+        const ULONGLONG now = GetTickCount64();
+        const bool enabled  = Config::Game().enabled;
+
+        const bool connected = I::EngineClient && I::EngineClient->connected();
+        const bool inGame    = connected && I::EngineClient->in_game();
+        const bool loading   = connected && !inGame;
+
+        // Not in a match (main menu, loading screen, map change, disconnect): don't read any entity.
+        if (!inGame)
+        {
+            if (s_inSession)
+            {
+                s_inSession = false;
+                ResetWorldState("left match / map change");
+            }
+            s_entitySystem    = nullptr;
+            g_ctx->local_pawn = nullptr;
+            SkinChanger::UpdateLiveInfo(nullptr);
+
+            if (!loading)
+                InventoryFrame(now, enabled);
+            return;
+        }
+
+        const void* entitySystem = I::GameEntity ? static_cast<const void*>(I::GameEntity->Instance) : nullptr;
+
+        // Joined a match, or the map changed without us seeing "not in game" (new entity system).
+        if (!s_inSession || entitySystem != s_entitySystem)
+        {
+            s_inSession     = true;
+            s_entitySystem  = entitySystem;
+            s_settleUntilMs = now + kSessionSettleMs;
+            ResetWorldState("entered match / new map");
+        }
+
+        // Switched on/off mid-match: start from a clean slate and give the world a moment.
+        if (enabled != s_prevEnabled)
+        {
+            s_prevEnabled = enabled;
+            ResetWorldState(enabled ? "enabled in game" : "disabled in game");
+            if (enabled)
+                s_settleUntilMs = (std::max)(s_settleUntilMs, now + kEnableSettleMs);
+        }
+
+        if (now < s_settleUntilMs || now < s_pauseUntilMs)
+        {
+            g_ctx->local_pawn = nullptr;
+            SkinChanger::UpdateLiveInfo(nullptr);
+            return;
+        }
+
+        C_CSPlayerPawn* pawn = I::GetLocalPawn();
+        g_ctx->local_pawn = pawn;
+
+        SkinChanger::UpdateLiveInfo(pawn);
+        SkinChanger::Run();
+        SkinChanger::RunAgentChanger();
+        SkinChanger::ProcessPendingKeychains();
+
+        InventoryFrame(now, enabled);
+    }
+
+    static void OnGameFault()
+    {
+        g_ctx->local_pawn = nullptr;
+        s_inSession       = false;   // forces a full reset + settle once the world is readable again
+        ++s_faultStreak;
+        s_pauseUntilMs = GetTickCount64() + (s_faultStreak >= 3 ? 10000 : 2000);
+        debug::Log("[skin] frame faulted (%d in a row) - state reset, paused", s_faultStreak);
+    }
+
+    static void GameFrameSafe()
+    {
+        __try
+        {
+            GameFrame();
+            s_faultStreak = 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            OnGameFault();
+        }
+    }
+
+    static void GameTick()
+    {
+        if (!g_initialized || s_shuttingDown.load(std::memory_order_acquire))
+            return;
+
+        Config::SyncGameSkins();   // take the newest copy the render thread published
+        GameFrameSafe();
+    }
+
+    static void __fastcall hkFrameStageNotify(void* self, int stage)
+    {
+        struct Guard
+        {
+            Guard()  { ++s_frameActive; }
+            ~Guard() { --s_frameActive; }
+        } guard;   // covers the original call too: our code is still on the stack until it returns
+
+        if (stage == FRAME_NET_UPDATE_END)
+            GameTick();
+
+        s_origFrameStage(self, stage);
+    }
+
+    static bool InstallFrameHook()
+    {
+        if (s_frameHooked.load() || !I::Source2Client)
+            return s_frameHooked.load();
+
+        const std::uint8_t* target = M::scan("client.dll", Patterns::FrameStageNotify);
+        if (!target)
+        {
+            debug::Log("[skin] FrameStageNotify signature not found");
+            return false;
+        }
+
+        void* client = I::Source2Client;
+        void** vtbl  = *reinterpret_cast<void***>(client);
+
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery(vtbl, &mbi, sizeof(mbi)))
+            return false;
+
+        const std::size_t avail = static_cast<std::size_t>(
+            (reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize - reinterpret_cast<std::uintptr_t>(vtbl)) / sizeof(void*));
+        const std::size_t slots = (std::min<std::size_t>)(avail, 512);
+
+        int slot = -1;
+        for (std::size_t i = 0; i < slots; ++i)
+        {
+            if (vtbl[i] == target)
+            {
+                slot = static_cast<int>(i);
+                break;
+            }
+        }
+
+        // GetEconItemSystem is vfunc 129: the copy must cover at least that.
+        if (slot < 0 || slots <= 130)
+        {
+            debug::Log("[skin] FrameStageNotify not in Source2Client vtable (slot %d, %zu slots)", slot, slots);
+            return false;
+        }
+
+        void** shadow = static_cast<void**>(VirtualAlloc(nullptr, slots * sizeof(void*), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+        if (!shadow)
+            return false;
+
+        std::memcpy(shadow, vtbl, slots * sizeof(void*));
+        s_origFrameStage = reinterpret_cast<FrameStageNotifyFn>(vtbl[slot]);
+        shadow[slot]     = reinterpret_cast<void*>(&hkFrameStageNotify);
+
+        s_shadowVtbl   = shadow;
+        s_realVtbl     = vtbl;
+        s_hookedClient = client;
+        *reinterpret_cast<void***>(client) = shadow;   // one aligned pointer write
+
+        s_frameHooked.store(true, std::memory_order_release);
+        debug::Log("[skin] FrameStageNotify hooked via vtable slot %d - skin pass runs on the game thread", slot);
+        return true;
+    }
+
+    void Shutdown()
+    {
+        s_shuttingDown.store(true, std::memory_order_release);
+
+        if (s_hookedClient && s_realVtbl)
+        {
+            *reinterpret_cast<void***>(s_hookedClient) = s_realVtbl;
+            s_hookedClient = nullptr;
+        }
+
+        while (s_frameActive.load() != 0)
+            Sleep(1);
+        Sleep(100);   // a call that loaded the shadow slot but hasn't entered the hook yet
+
+        s_frameHooked.store(false);
+        if (s_shadowVtbl)
+        {
+            VirtualFree(s_shadowVtbl, 0, MEM_RELEASE);
+            s_shadowVtbl = nullptr;
         }
     }
 
@@ -160,6 +450,10 @@ namespace SkinChangerBridge
             debug::Log("[inv] GameInv init failed: %s", GameInv::LastError());
         }
 
+        // Last: once this is in, the game thread starts calling GameTick().
+        if (!InstallFrameHook())
+            debug::Log("[skin] frame hook unavailable - falling back to the render thread (less stable)");
+
         return true;
     }
 
@@ -170,66 +464,30 @@ namespace SkinChangerBridge
         g_imagesInitialized = SkinImages::Initialize(device);
     }
 
-    // SEH wrapper for inventory sync — no C++ objects with destructors in this scope.
-    static void SyncInventorySafe()
-    {
-        __try { SyncInventory(); }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            g_invInited = false; // stop future syncs rather than crash on every timer tick
-            debug::Log("[inv] SyncInventory crashed — inventory sync disabled until DLL reload");
-        }
-    }
-
-    // All game-entity reads go through here.  During a map change or game end the engine
-    // may tear down entity memory while our render hook still fires with a stale pawn
-    // address.  Wrapping every dereference in one SEH block (no C++ objects with
-    // destructors in *this* function's scope — the MSVC requirement for __try/__except)
-    // catches the access violation and lets the next tick recover cleanly.
-    static void RunSkinChangerSafe(uintptr_t pawnAddr)
-    {
-        __try
-        {
-            g_ctx->local_pawn = reinterpret_cast<C_CSPlayerPawn*>(pawnAddr);
-            SkinChanger::UpdateLiveInfo(g_ctx->local_pawn);
-            SkinChanger::Run();
-            SkinChanger::RunAgentChanger();
-            SkinChanger::ProcessPendingKeychains();
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            g_ctx->local_pawn = nullptr;
-            debug::Log("[skin] tick crashed (map change / game end) — pawn reset, will retry");
-        }
-    }
-
-    void Tick(uintptr_t localPawnAddr)
+    // Render thread, every frame.  Only publishes menu state to the game thread; the actual skin pass
+    // runs in hkFrameStageNotify.  Fallback when the hook is missing: run it here (old behaviour).
+    void Tick()
     {
         if (g_imagesInitialized)
             SkinImages::BeginFrame();
 
-        if (!g_initialized || !g_enabled)
+        if (!g_initialized)
             return;
 
-        Config::skins.enabled = true;
+        // The master switch is authoritative: the game thread sees "disabled" and cleans up properly
+        // (it used to stop being called, leaving stale state behind for the next enable).
+        Config::skins.enabled = g_enabled;
 
-        if (g_applyBothTeams)
+        if (g_enabled && g_applyBothTeams)
         {
             const int other = (Config::editTeam == Config::TEAM_CT) ? Config::TEAM_T : Config::TEAM_CT;
             Config::skins.loadouts[other].weapons = Config::skins.loadouts[Config::editTeam].weapons;
         }
 
         Config::PublishSkins();
-        Config::SyncGameSkins();
 
-        RunSkinChangerSafe(localPawnAddr);
-
-        // Sync inventory every ~5 s so skins appear in the inventory panel too.
-        if (++s_invSyncTimer >= 300)
-        {
-            s_invSyncTimer = 0;
-            SyncInventorySafe();
-        }
+        if (!s_frameHooked.load(std::memory_order_acquire))
+            GameTick();
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────

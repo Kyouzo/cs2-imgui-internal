@@ -202,21 +202,11 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 	}
 
 	// Retry image init every frame until g_initialized is true (Init() runs on a background thread).
+
 	SkinChangerBridge::InitImages(pDevice);
 
-	// Resolve local pawn for skinchanger (mirrors visuals.cpp offset path)
-	uintptr_t skinLocalPawn = 0;
-	if (SkinChangerBridge::g_initialized && SkinChangerBridge::g_enabled)
-	{
-		static uintptr_t clientMod = reinterpret_cast<uintptr_t>(GetModuleHandleA("client.dll"));
-		__try
-		{
-			constexpr std::ptrdiff_t dwLocalPlayerPawn = 0x256A948;
-			skinLocalPawn = *reinterpret_cast<const uintptr_t*>(clientMod + dwLocalPlayerPawn);
-		}
-		__except (EXCEPTION_EXECUTE_HANDLER) {}
-		SkinChangerBridge::Tick(skinLocalPawn);
-	}
+	// Publishes menu state to the game thread (the skin pass runs from the FrameStageNotify hook).
+	SkinChangerBridge::Tick();
 
 	ImGui_ImplDX11_NewFrame();
 	ImGui_ImplWin32_NewFrame();
@@ -482,6 +472,9 @@ DWORD WINAPI MainThread(LPVOID lpReserved)
 
 DWORD WINAPI UnloadThread(LPVOID)
 {
+	// Take the game-thread hook out first so no FrameStageNotify call re-enters our code during teardown.
+	SkinChangerBridge::Shutdown();
+
 	// Disable any remaining MinHook hooks, then wait for in-flight callbacks to drain.
 	MH_DisableHook(MH_ALL_HOOKS);
 	debug::Log("[unload] waiting for active render callbacks");
