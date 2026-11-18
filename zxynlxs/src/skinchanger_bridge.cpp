@@ -431,10 +431,10 @@ namespace SkinChangerBridge
         }
 
         debug::Log("[skin] initializing item schema");
-        if (!Skins::g_ItemSchema.Initialize())
+        for (int attempt = 1; !Skins::g_ItemSchema.Initialize(); ++attempt)
         {
-            debug::Log("[skin] item schema init failed");
-            return false;
+            debug::Log("[skin] item schema init failed (attempt %d), retrying in 2s...", attempt);
+            Sleep(2000);
         }
 
         g_initialized = true;

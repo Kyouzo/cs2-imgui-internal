@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "revision": 0,
+    "rules": [
+        {
+            "primary-output": "Z:\\Projects\\cs2internal\\Build\\Interms\\signatures.obj",
+            "outputs": [
+                "Z:\\Projects\\cs2internal\\Build\\Interms\\signatures.h.obj.dt.module.json",
+                "Z:\\Projects\\cs2internal\\Build\\Interms\\signatures.h.obj.dt.d.json"
+            ],
+            "requires": []
+        }
+    ]
+}

@@ -30,8 +30,8 @@ const bool Vec3::WorldToScreen(Vec2& out, float(*ViewMatrix)[4][4]) {
     {
         __try
         {
-            screenWidth = *(uint32_t*)(visuals::engineModule + offsets::dwWindowWidth);
-            screenHeight = *(uint32_t*)(visuals::engineModule + offsets::dwWindowHeight);
+            screenWidth = *(uint32_t*)(visuals::engineModule + offsets::dwWindowWidth());
+            screenHeight = *(uint32_t*)(visuals::engineModule + offsets::dwWindowHeight());
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {

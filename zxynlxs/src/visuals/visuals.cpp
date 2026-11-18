@@ -81,191 +81,6 @@ namespace
         17, 18, 19, 20, 21, 22, 23
     };
 
-    uintptr_t FindWorldToProjectionMatrix(uintptr_t clientModule)
-    {
-        static bool initialized = false;
-        static uintptr_t cachedMatrix = 0;
-        if (initialized)
-            return cachedMatrix;
-
-        initialized = true;
-        const auto* base = reinterpret_cast<const std::uint8_t*>(clientModule);
-        const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
-            return 0;
-
-        const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dosHeader->e_lfanew);
-        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
-            return 0;
-
-        const auto* sections = IMAGE_FIRST_SECTION(ntHeaders);
-        constexpr std::uint8_t pattern[] = {
-            0x48, 0x8D, 0x0D, 0x00, 0x00, 0x00, 0x00,
-            0x48, 0xC1, 0xE0, 0x06
-        };
-
-        for (unsigned sectionIndex = 0; sectionIndex < ntHeaders->FileHeader.NumberOfSections; ++sectionIndex)
-        {
-            const auto& section = sections[sectionIndex];
-            if ((section.Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
-                continue;
-
-            const auto* sectionBegin = base + section.VirtualAddress;
-            const auto sectionSize = static_cast<size_t>(section.Misc.VirtualSize);
-            if (sectionSize < sizeof(pattern))
-                continue;
-
-            for (size_t offset = 0; offset <= sectionSize - sizeof(pattern); ++offset)
-            {
-                const auto* candidate = sectionBegin + offset;
-                if (candidate[0] != pattern[0] || candidate[1] != pattern[1] || candidate[2] != pattern[2] ||
-                    candidate[7] != pattern[7] || candidate[8] != pattern[8] ||
-                    candidate[9] != pattern[9] || candidate[10] != pattern[10])
-                    continue;
-
-                std::int32_t relative = 0;
-                std::memcpy(&relative, candidate + 3, sizeof(relative));
-                cachedMatrix = reinterpret_cast<uintptr_t>(candidate + 7 + relative);
-                debug::Log("[esp] resolved world-to-projection matrix: 0x%p",
-                    reinterpret_cast<void*>(cachedMatrix));
-                return cachedMatrix;
-            }
-        }
-
-        debug::Log("[esp] failed to resolve world-to-projection matrix");
-        return 0;
-    }
-
-    uintptr_t FindEntitySystemGlobal(uintptr_t clientModule)
-    {
-        static bool initialized = false;
-        static uintptr_t cachedGlobal = 0;
-        if (initialized)
-            return cachedGlobal;
-
-        initialized = true;
-        const auto* base = reinterpret_cast<const std::uint8_t*>(clientModule);
-        const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
-            return 0;
-
-        const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dosHeader->e_lfanew);
-        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
-            return 0;
-
-        const auto* sections = IMAGE_FIRST_SECTION(ntHeaders);
-        constexpr std::uint8_t pattern[] = {
-            0x48, 0x89, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x4C, 0x63, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x44, 0x3B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F
-        };
-        constexpr bool wildcard[] = {
-            false, false, true, true, true, true, true,
-            false, false, true, true, true, true, true,
-            false, false, true, true, true, true, true, false
-        };
-
-        for (unsigned sectionIndex = 0; sectionIndex < ntHeaders->FileHeader.NumberOfSections; ++sectionIndex)
-        {
-            const auto& section = sections[sectionIndex];
-            if ((section.Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
-                continue;
-
-            const auto* sectionBegin = base + section.VirtualAddress;
-            const auto sectionSize = static_cast<size_t>(section.Misc.VirtualSize);
-            if (sectionSize < sizeof(pattern))
-                continue;
-
-            for (size_t offset = 0; offset <= sectionSize - sizeof(pattern); ++offset)
-            {
-                bool matched = true;
-                for (size_t byteIndex = 0; byteIndex < sizeof(pattern); ++byteIndex)
-                {
-                    if (!wildcard[byteIndex] && sectionBegin[offset + byteIndex] != pattern[byteIndex])
-                    {
-                        matched = false;
-                        break;
-                    }
-                }
-
-                if (matched)
-                {
-                    std::int32_t relative = 0;
-                    std::memcpy(&relative, sectionBegin + offset + 3, sizeof(relative));
-                    cachedGlobal = reinterpret_cast<uintptr_t>(sectionBegin + offset + 7 + relative);
-                    debug::Log("[esp] resolved EntitySystem global: 0x%p",
-                        reinterpret_cast<void*>(cachedGlobal));
-                    return cachedGlobal;
-                }
-            }
-        }
-
-        debug::Log("[esp] failed to resolve EntitySystem global");
-        return 0;
-    }
-
-    int8_t FindEntityListOffset(uintptr_t clientModule)
-    {
-        static bool initialized = false;
-        static int8_t cachedOffset = 0;
-        if (initialized)
-            return cachedOffset;
-
-        initialized = true;
-
-        const auto* base = reinterpret_cast<const std::uint8_t*>(clientModule);
-        const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
-            return 0;
-
-        const auto* ntHeaders = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dosHeader->e_lfanew);
-        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
-            return 0;
-
-        const auto* sections = IMAGE_FIRST_SECTION(ntHeaders);
-        constexpr std::uint8_t pattern[] = {
-            0x48, 0x8D, 0x00, 0x00, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x8D, 0x85
-        };
-        constexpr bool wildcard[] = {
-            false, false, true, true, false, true, true, true, true, false, false
-        };
-
-        for (unsigned sectionIndex = 0; sectionIndex < ntHeaders->FileHeader.NumberOfSections; ++sectionIndex)
-        {
-            const auto& section = sections[sectionIndex];
-            if ((section.Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
-                continue;
-
-            const auto* sectionBegin = base + section.VirtualAddress;
-            const auto sectionSize = static_cast<size_t>(section.Misc.VirtualSize);
-            if (sectionSize < sizeof(pattern))
-                continue;
-
-            for (size_t offset = 0; offset <= sectionSize - sizeof(pattern); ++offset)
-            {
-                bool matched = true;
-                for (size_t byteIndex = 0; byteIndex < sizeof(pattern); ++byteIndex)
-                {
-                    if (!wildcard[byteIndex] && sectionBegin[offset + byteIndex] != pattern[byteIndex])
-                    {
-                        matched = false;
-                        break;
-                    }
-                }
-
-                if (matched)
-                {
-                    cachedOffset = *reinterpret_cast<const int8_t*>(sectionBegin + offset + 3);
-                    debug::Log("[esp] resolved EntityListOffset: 0x%02X", static_cast<unsigned char>(cachedOffset));
-                    return cachedOffset;
-                }
-            }
-        }
-
-        debug::Log("[esp] failed to resolve EntityListOffset");
-        return 0;
-    }
-
     template <typename T>
     bool ReadValue(uintptr_t address, T& value, const char* stage)
     {
@@ -481,28 +296,14 @@ bool visuals::FindBestAimPoint(const Vec3& currentView, Vec3& targetAngles,
 
     uintptr_t localController = 0;
     uintptr_t localPawnFromOffset = 0;
-    if (!ReadValue(clientModule + offsets::dwLocalPlayerController, localController, "aim.localController") ||
-        !ReadValue(clientModule + offsets::dwLocalPlayerPawn, localPawnFromOffset, "aim.localPawn"))
+    if (!ReadValue(clientModule + offsets::dwLocalPlayerController(), localController, "aim.localController") ||
+        !ReadValue(clientModule + offsets::dwLocalPlayerPawn(), localPawnFromOffset, "aim.localPawn"))
         return false;
 
-    uintptr_t entitySystem = 0;
-    const auto entitySystemGlobal = FindEntitySystemGlobal(clientModule);
-    if (entitySystemGlobal && ReadValue(entitySystemGlobal, entitySystem, "aim.entitySystem"))
-    {
-        // resolved global path
-    }
-    else if (!ReadValue(clientModule + offsets::dwEntityList,
-        entitySystem, "aim.dwGameEntitySystem"))
-    {
+    uintptr_t entityListBase = 0;
+    if (!ReadValue(clientModule + offsets::dwEntityList(), entityListBase, "aim.dwEntityList") || !entityListBase)
         return false;
-    }
-    if (!entitySystem)
-        return false;
-
-    const auto entityListOffset = FindEntityListOffset(clientModule);
-    if (!entityListOffset)
-        return false;
-    const auto entityList = entitySystem + entityListOffset;
+    const uintptr_t entityList = entityListBase + 0x10;
 
     uintptr_t localPawn = 0;
     uint32_t localPawnHandle = 0;
@@ -632,19 +433,16 @@ void visuals::PlayerESP(bool renderPlayers)
         return;
     }
 
-    auto viewMatrixAddress = FindWorldToProjectionMatrix(clientModule);
-    if (!viewMatrixAddress)
-        viewMatrixAddress = clientModule + offsets::dwViewMatrix;
-    auto ViewMatrix = reinterpret_cast<float(*)[4][4]>(viewMatrixAddress);
+    auto ViewMatrix = reinterpret_cast<float(*)[4][4]>(clientModule + offsets::dwViewMatrix());
 
     // dwLocalPlayerPawn can follow the camera/observer state while dead. Resolve
     // the pawn from the local controller as the authoritative player identity,
     // and keep dwLocalPlayerPawn only as a compatibility fallback.
     uintptr_t localPlayerController = 0;
     uintptr_t localPlayerPawnFromOffset = 0;
-    if (!ReadValue(clientModule + offsets::dwLocalPlayerController,
+    if (!ReadValue(clientModule + offsets::dwLocalPlayerController(),
         localPlayerController, "dwLocalPlayerController") ||
-        !ReadValue(clientModule + offsets::dwLocalPlayerPawn,
+        !ReadValue(clientModule + offsets::dwLocalPlayerPawn(),
             localPlayerPawnFromOffset, "dwLocalPlayerPawn"))
         return;
 
@@ -657,31 +455,10 @@ void visuals::PlayerESP(bool renderPlayers)
         loggedFirstPass = true;
     }
 
-    uintptr_t entitySystemGlobal = FindEntitySystemGlobal(clientModule);
-    uintptr_t entitySystem = 0;
-    if (entitySystemGlobal && ReadValue(entitySystemGlobal, entitySystem, "entitySystem"))
-    {
-        static uintptr_t lastLoggedEntitySystem = 0;
-        if (lastLoggedEntitySystem != entitySystem)
-        {
-            debug::Log("[esp] EntitySystem=0x%p", reinterpret_cast<void*>(entitySystem));
-            lastLoggedEntitySystem = entitySystem;
-        }
-    }
-    else if (!ReadValue(clientModule + offsets::dwEntityList,
-        entitySystem, "dwGameEntitySystem"))
-    {
+    uintptr_t entityListBase = 0;
+    if (!ReadValue(clientModule + offsets::dwEntityList(), entityListBase, "dwEntityList") || !entityListBase)
         return;
-    }
-
-    if (!entitySystem)
-        return;
-
-    const auto entityListOffset = FindEntityListOffset(clientModule);
-    if (!entityListOffset)
-        return;
-
-    const auto entityList = entitySystem + entityListOffset;
+    const uintptr_t entityList = entityListBase + 0x10;
 
     uintptr_t localPlayerPawn = 0;
     if (localPlayerController)

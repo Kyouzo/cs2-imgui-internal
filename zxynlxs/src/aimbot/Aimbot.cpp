@@ -32,7 +32,7 @@ namespace
         __try
         {
             const auto* va = reinterpret_cast<const float*>(
-                visuals::clientModule + offsets::dwViewAngles);
+                visuals::clientModule + offsets::dwViewAngles());
             angles = {va[0], va[1], 0.0f};
             ClampAngles(angles);
             return true;
@@ -45,7 +45,7 @@ namespace
         __try
         {
             auto* va = reinterpret_cast<float*>(
-                visuals::clientModule + offsets::dwViewAngles);
+                visuals::clientModule + offsets::dwViewAngles());
             va[0] = angles.x;
             va[1] = angles.y;
         }
@@ -97,7 +97,7 @@ void aimbot::Tick()
     visuals::engineModule = reinterpret_cast<uintptr_t>(GetModuleHandleA("engine2.dll"));
 
     uintptr_t localPawn = 0;
-    __try { localPawn = *reinterpret_cast<const uintptr_t*>(clientMod + offsets::dwLocalPlayerPawn); }
+    __try { localPawn = *reinterpret_cast<const uintptr_t*>(clientMod + offsets::dwLocalPlayerPawn()); }
     __except (EXCEPTION_EXECUTE_HANDLER) { return; }
     if (!localPawn)
         return;

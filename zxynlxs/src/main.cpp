@@ -4,6 +4,7 @@
 #include "includes.h"
 #include "globals/globals.h"
 #include "visuals/visuals.h"
+#include "signatures/signatures.h"
 #include "aimbot/Aimbot.h"
 #include "debug/debug.h"
 #include "skinchanger_bridge.h"
@@ -12,9 +13,7 @@
 #include <atomic>
 #include <cctype>
 #include <cmath>
-#include <sstream>
 #include <string>
-#include <vector>
 #include "Z:/Projects/JetBrainsMonoNerdFontRegular.h"
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -388,74 +387,18 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 }
 
 
-namespace
-{
-	std::vector<int> ParsePattern(const char* pattern)
-	{
-		std::vector<int> bytes;
-		std::istringstream stream(pattern);
-		std::string token;
-		while (stream >> token)
-			bytes.push_back(token == "?" || token == "??" ? -1 : std::stoi(token, nullptr, 16));
-		return bytes;
-	}
-
-	uintptr_t FindPattern(uintptr_t module, const char* pattern)
-	{
-		if (!module)
-			return 0;
-
-		const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(module);
-		if (dos->e_magic != IMAGE_DOS_SIGNATURE)
-			return 0;
-		const auto nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(module + dos->e_lfanew);
-		if (nt->Signature != IMAGE_NT_SIGNATURE)
-			return 0;
-
-		const auto bytes = ParsePattern(pattern);
-		const auto* section = IMAGE_FIRST_SECTION(nt);
-		for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i)
-		{
-			if ((section[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
-				continue;
-
-			const auto* begin = reinterpret_cast<const std::uint8_t*>(module + section[i].VirtualAddress);
-			const auto size = static_cast<size_t>(section[i].Misc.VirtualSize);
-			if (bytes.empty() || size < bytes.size())
-				continue;
-
-			for (size_t offset = 0; offset <= size - bytes.size(); ++offset)
-			{
-				bool matched = true;
-				for (size_t j = 0; j < bytes.size(); ++j)
-				{
-					if (bytes[j] >= 0 && begin[offset + j] != static_cast<std::uint8_t>(bytes[j]))
-					{
-						matched = false;
-						break;
-					}
-				}
-				if (matched)
-					return reinterpret_cast<uintptr_t>(begin + offset);
-			}
-		}
-		return 0;
-	}
-
-	uintptr_t ResolveRelativeAddress(uintptr_t instruction, size_t displacementOffset, size_t instructionSize)
-	{
-		if (!instruction)
-			return 0;
-		const auto displacement = *reinterpret_cast<const std::int32_t*>(instruction + displacementOffset);
-		return instruction + instructionSize + displacement;
-	}
-}
 
 DWORD WINAPI MainThread(LPVOID lpReserved)
 {
 	debug::Initialize();
 	debug::Log("[init] starting D3D11 hook thread");
-	
+
+	// Wait for game modules before scanning signatures.
+	while (!GetModuleHandleA("client.dll") || !GetModuleHandleA("engine2.dll"))
+		Sleep(100);
+
+	signatures::Init();
+
 	bool init_hook = false;
 	do
 	{
